@@ -7,15 +7,22 @@ load_dotenv()
 # Default to SQLite for LOCAL development if Redis is not available
 # This ensures the app works out-of-the-box on Windows without installing Redis
 REDIS_URL = os.getenv("REDIS_URL")
+NEON_DB_URL = os.getenv("NEON_DB_URL") or os.getenv("DATABASE_URL")
 
-if not REDIS_URL:
-    print("[SYSTEM] REDIS_URL not found. Using 'Universal Dev Mode' (SQLite Broker).")
-    # For Windows users without Redis, we use SQLAlchemy as the broker provider
-    BROKER_URL = "sqla+sqlite:///./celery_broker.db"
-    RESULT_BACKEND = "db+sqlite:///./celery_results.db"
-else:
+if REDIS_URL:
     BROKER_URL = REDIS_URL
     RESULT_BACKEND = REDIS_URL
+    print("[SYSTEM] Using Redis as Celery Broker.")
+elif NEON_DB_URL:
+    # Use Postgres as broker if Redis is missing (Great for Render Free Tier)
+    BROKER_URL = f"sqla+{NEON_DB_URL}"
+    RESULT_BACKEND = f"db+{NEON_DB_URL}"
+    print("[SYSTEM] REDIS_URL not found. Using Neon Postgres as Celery Broker.")
+else:
+    # Local Dev Fallback
+    print("[SYSTEM] Using Local SQLite for Celery Broker.")
+    BROKER_URL = "sqla+sqlite:///./celery_broker.db"
+    RESULT_BACKEND = "db+sqlite:///./celery_results.db"
 
 celery_app = Celery(
     "outreach_v3",
