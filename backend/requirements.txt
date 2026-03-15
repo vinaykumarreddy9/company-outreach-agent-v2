@@ -12,7 +12,6 @@ langgraph
 celery[sqlalchemy]
 redis
 tavily-python
-pythonnet
 python-multipart
 hubspot-api-client
 pandas
