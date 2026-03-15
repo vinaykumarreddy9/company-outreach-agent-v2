@@ -22,7 +22,7 @@ A high-fidelity, autonomous outreach system designed to discover companies, iden
 
 ## 🛠 Tech Stack
 
-- **Backend**: FastAPI, SQLAlchemy, PostgreSQL (Neon), Celery, Redis.
+- **Backend**: FastAPI, SQLAlchemy, PostgreSQL (Neon), Celery (Redis optional).
 - **Frontend**: React, Vite, Framer Motion, Tailwind CSS.
 - **AI/LLM**: GPT-4o-mini, LangChain, LangGraph.
 - **Search**: Tavily, Exa AI, Zenserp.
