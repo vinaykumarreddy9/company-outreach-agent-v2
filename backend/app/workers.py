@@ -198,10 +198,18 @@ def draft_emails_worker(campaign_id: str):
             return
         
         user_intel_raw = campaign.user_intel
+        offerings = []
+        try:
+            offerings = json.loads(user_intel_raw.offerings)
+            if not isinstance(offerings, list):
+                offerings = [str(offerings)]
+        except:
+            offerings = [str(user_intel_raw.offerings)]
+            
         user_intel = {
             "company_name": user_intel_raw.company_name,
-            "moto": user_intel_raw.motto, # Changed to 'moto' to match agent expectation
-            "offerings": json.loads(user_intel_raw.offerings),
+            "moto": user_intel_raw.motto or "N/A",
+            "offerings": offerings,
             "deep_research": user_intel_raw.deep_research
         }
         
@@ -209,12 +217,17 @@ def draft_emails_worker(campaign_id: str):
         print(f"Drafting for {len(dms)} validated stakeholders.")
         
         for dm in dms:
-            # Get target company research
+            # 1. Skip if already drafted
+            if db.query(models.EmailDraft).filter(models.EmailDraft.decision_maker_id == dm.id).first():
+                continue
+
+            # 2. Get target company research
             target_co = db.query(models.TargetCompany).filter(models.TargetCompany.id == dm.target_company_id).first()
             if not target_co: continue
             
-            # Draft
+            # 3. Draft with individual try/except
             try:
+                print(f"[GHOSTWRITER] Creating personalized draft for {dm.name} at {target_co.name}...")
                 draft_data = draft_personalized_email(user_intel, {"name": dm.name, "position": dm.position}, target_co.name, target_co.deep_research)
                 if draft_data:
                     new_draft = models.EmailDraft(
@@ -226,8 +239,16 @@ def draft_emails_worker(campaign_id: str):
                     )
                     db.add(new_draft)
                     dm.status = "DRAFTED"
+                    db.commit() # Commit each draft for UI progress & durability
+                    print(f"[GHOSTWRITER] Success: Draft saved for {dm.name}")
+                else:
+                    print(f"[GHOSTWRITER] Warning: Agent returned empty draft for {dm.name}")
             except Exception as draft_e:
                 print(f"Failure drafting email for {dm.name}: {draft_e}")
+                db.rollback()
+            
+            # 4. Memory management
+            gc.collect()
                 
         campaign.status = models.CampaignStatus.COMPLETED
         db.commit()
