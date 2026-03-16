@@ -15,7 +15,7 @@ import re
 import datetime
 import pytz
 from datetime import UTC
-from concurrent.futures import ThreadPoolExecutor
+import gc
 
 
 
@@ -165,10 +165,12 @@ def find_dms_worker(campaign_id: str):
             except Exception as thread_e:
                 print(f"Error processing DMs for {co.name}: {thread_e}")
 
-        # Parallelize DM finding for latency optimization
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # Force execution and ensure completion
-            list(executor.map(process_company_dms, target_cos))
+        # Sequential processing to stay within memory limits (Render Free Tier)
+        print(f"[MISSION CONTROL] Processing {len(target_cos)} companies sequentially for memory stability.")
+        for co in target_cos:
+            process_company_dms(co)
+            # Explicitly clear memory after each company processing
+            gc.collect()
         
         # 3. Clean-up phase: Prune companies with zero validated prospects
         print(f"[MISSION CONTROL] Audit phase: Cleaning up low-yield organizations...")
