@@ -117,25 +117,41 @@ def find_companies_worker(campaign_id: str):
         db.close()
 
 def find_dms_worker(campaign_id: str):
+    print(f"[MISSION CONTROL] Phase: DM Discovery for {campaign_id}")
     db = SessionLocal()
     try:
         campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
-        if not campaign: return
+        if not campaign:
+            print(f"[MISSION CONTROL] Aborting DM Finder: Campaign {campaign_id} not found.")
+            return
         
+        # We process 'NEW' companies (those just found by the previous agent)
         target_cos = db.query(models.TargetCompany).filter(
             models.TargetCompany.campaign_id == campaign_id,
             models.TargetCompany.status == "NEW"
         ).all()
         
-        def process_company_dms(co):
+        if not target_cos:
+            print(f"[MISSION CONTROL] No NEW companies to process for {campaign_id}. Skipping to drafting.")
+            campaign.status = models.CampaignStatus.DRAFTING_EMAILS
+            db.commit()
+            draft_emails_worker(campaign_id)
+            return
+
+        # Sequential processing to stay within memory limits (Render Free Tier)
+        print(f"[MISSION CONTROL] Processing {len(target_cos)} companies sequentially for memory stability.")
+        
+        for co in target_cos:
             try:
-                # Signature updated: removed user_offerings
+                print(f"[DM FINDER] Researching stakeholders for: {co.name}")
                 dms = find_decision_makers(co.name)
+                
+                # Atomically save DMs for this company
                 with SessionLocal() as local_db:
+                    saved_count = 0
                     for dm in dms:
                         score = dm.get("similarity_score", 0)
                         if score >= 70:
-                            # 1. Create DM in DB
                             new_dm = models.DecisionMaker(
                                 campaign_id=campaign_id,
                                 target_company_id=co.id,
@@ -146,9 +162,8 @@ def find_dms_worker(campaign_id: str):
                                 status="NEW"
                             )
                             local_db.add(new_dm)
-                            local_db.flush() # Get ID for mapping
+                            local_db.flush()
                             
-                            # 2. Sync to HubSpot
                             try:
                                 hs_id = hubspot_provider.create_lead(dm, co.name)
                                 if hs_id:
@@ -156,34 +171,32 @@ def find_dms_worker(campaign_id: str):
                                     new_dm.status = "SYNCED"
                             except Exception as hs_e:
                                 print(f"HubSpot Integration Error for {dm.get('name')}: {hs_e}")
-                                
-                            local_db.commit()
-            except Exception as thread_e:
-                print(f"Error processing DMs for {co.name}: {thread_e}")
+                            
+                            saved_count += 1
+                    
+                    local_db.commit()
+                    print(f"[DM FINDER] Saved {saved_count} stakeholders for {co.name}.")
+                
+                # Update company status so we don't re-process it
+                co.status = "ACTIVE"
+                db.commit()
 
-        # Sequential processing to stay within memory limits (Render Free Tier)
-        print(f"[MISSION CONTROL] Processing {len(target_cos)} companies sequentially for memory stability.")
-        for co in target_cos:
-            process_company_dms(co)
-            # Explicitly clear memory after each company processing
+            except Exception as proc_e:
+                print(f"Error processing DMs for {co.name}: {proc_e}")
+            
+            # Memory harvest
             gc.collect()
-        
-        # 3. Clean-up phase: Prune companies with zero validated prospects
-        print(f"[MISSION CONTROL] Audit phase: Cleaning up low-yield organizations...")
-        for co in target_cos:
-            dm_count = db.query(models.DecisionMaker).filter(models.DecisionMaker.target_company_id == co.id).count()
-            if dm_count == 0:
-                print(f"[AUDIT] Deleting {co.name} - Zero validated prospects found.")
-                db.delete(co)
-        db.commit()
-        
-        # 3. Trigger next isolated agent
-        print(f"[MISSION CONTROL] DM Finding phase complete for {campaign_id}. Initiating Email Drafting...")
+
+        # Update Mission Status
+        print(f"[MISSION CONTROL] DM Finding phase complete for {campaign_id}. Transitioning to Ghostwriter...")
         campaign.status = models.CampaignStatus.DRAFTING_EMAILS
         db.commit()
+        
+        # Explicitly call next stage
         draft_emails_worker(campaign_id)
+        
     except Exception as e:
-        print(f"Error in DM Finder Work: {e}")
+        print(f"Operational Error in DM Finder: {e}")
         db.rollback()
     finally:
         db.close()
