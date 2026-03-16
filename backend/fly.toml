@@ -1,0 +1,20 @@
+# fly.toml app configuration file generated for company-outreach-backend
+
+app = "company-outreach-backend" # Replace with your unique app name
+primary_region = "ams" # Or your preferred region (e.g., maa for Chennai/India)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "1gb" # Fly.io allows 1GB which is better than Render Free
+  cpu_kind = "shared"
+  cpus = 1
