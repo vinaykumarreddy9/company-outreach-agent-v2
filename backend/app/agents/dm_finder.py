@@ -47,7 +47,7 @@ def find_decision_makers(company_name: str, location: str):
     # We include the location to avoid finding DMs from different branches/companies with same names.
     queries = [
         f'site:linkedin.com/in "{company_name}" "{location}" ("CEO" OR "CTO" OR "Founder" OR "Managing Director")',
-        f'site:linkedin.com/in "{company_name}" "{location}" ("VP" OR "Director" OR "Head of")'
+        f'site:linkedin.com/in "{company_name}" "{location}" ("VP" OR "Director" OR "Manager")'
     ]
     
     all_raw_results = []
@@ -72,19 +72,24 @@ def find_decision_makers(company_name: str, location: str):
     structured_llm = llm.with_structured_output(DMFinderResponse)
     
     sys_prompt = f"""
-    You are a Stakeholder Auditor. Analyze the search results for the company "{company_name}" located in "{location}" to extract and verify decision-makers.
+    You are a Strategic Stakeholder Auditor. Your mission is to identify and verify the current leadership of "{company_name}" in "{location}".
     
-    AUDIT CORE RULES:
-    1. CURRENT ROLE & LOCATION: Strictly reject anyone marked as "Former" or whose snippet implies they left. Prioritize those explicitly working in the "{location}" region.
-    2. HIGH SENIORITY: Target C-Suite (CEO, CTO, etc.), VP, Director, and Head of departments.
-    3. DEDUPLICATE: If the same person appears in multiple results, merge them into ONE unique entry.
-    4. CLEAN URLS: Ensure LinkedIn URLs are valid.
-    5. SCORING: 
-       - 90-100: C-Suite/Founders
-       - 80-89: VP/Directors
-       - 70-79: Head level
-       - < 70: Ignore
-    6. LIMIT: Return Top 3 unique, highest-scoring stakeholders.
+    STRICT VALIDATION PROTOCOL:
+    1. CLEAR WITNESS REQUIREMENT: Only approve a candidate if the search snippet provides explicit "Ground Truth" that they are CURRENTLY at "{company_name}". 
+       - ACCEPT: "CEO at {company_name}", "{company_name} | Director...", "current role: Managing Director at {company_name}".
+       - REJECT: Ambiguous snippets, mentions of "linked to", or results where the company name isn't directly connected to the title in a current tense.
+    2. ZERO-TOLERANCE FOR FORMER ROLES: Strictly reject anyone marked "Former", "Ex-", "Past", or "started a new position at [Different Company]".
+    3. GEOGRAPHIC FENCING: Prioritize and verify that the snippet mentions "{location}" or the regional branch.
+    4. SENIORITY FILTER: Target C-Suite (CEO, CTO, Founder), VP, Director, and high-level Managers.
+    5. DEDUPLICATION: Merge multiple snippets for the same person into one entry with the best data.
+    
+    SCORING MATRIX:
+    - 95-100: C-Suite/Founders with explicit "Current" verification.
+    - 85-94: VP/Directors with explicit current role confirmation.
+    - 75-84: Managers with explicit current role confirmation.
+    - < 75: Reject (Ambiguous roles, secondary management, or lack of clear witness).
+    
+    LIMIT: Return Top 3 unique, verified-current stakeholders only.
     """
     
     messages = [
