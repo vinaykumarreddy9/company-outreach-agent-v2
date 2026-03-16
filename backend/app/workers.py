@@ -143,8 +143,8 @@ def find_dms_worker(campaign_id: str):
         
         for co in target_cos:
             try:
-                print(f"[DM FINDER] Researching stakeholders for: {co.name}")
-                dms = find_decision_makers(co.name)
+                print(f"[DM FINDER] Researching stakeholders for: {co.name} in {co.location}")
+                dms = find_decision_makers(co.name, co.location)
                 
                 # Atomically save DMs for this company
                 with SessionLocal() as local_db:
