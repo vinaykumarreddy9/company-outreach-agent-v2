@@ -1,4 +1,3 @@
-from app.core.celery_app import celery_app
 from app.db.database import SessionLocal
 from app.db import models
 from app.agents.user_intel import research_user_company
@@ -19,7 +18,6 @@ import gc
 
 
 
-@celery_app.task(name="app.workers.research_user_company_worker")
 def research_user_company_worker(campaign_id: str):
     db = SessionLocal()
     try:
@@ -55,11 +53,10 @@ def check_phase_1_completion(campaign_id: str):
             print(f"[MISSION CONTROL] User Intel Phase Complete for {campaign_id}. Triggering Company Finder.")
             campaign.status = models.CampaignStatus.FINDING_TARGET_COMPANIES
             db.commit()
-            find_companies_worker.delay(campaign_id)
+            find_companies_worker(campaign_id)
     finally:
         db.close()
 
-@celery_app.task
 def find_companies_worker(campaign_id: str):
     db = SessionLocal()
     try:
@@ -112,14 +109,13 @@ def find_companies_worker(campaign_id: str):
         # 2. Trigger next isolated agent
         campaign.status = models.CampaignStatus.FINDING_DECISION_MAKERS
         db.commit()
-        find_dms_worker.delay(campaign_id)
+        find_dms_worker(campaign_id)
     except Exception as e:
         print(f"Error in Company Finder Work: {e}")
         db.rollback()
     finally:
         db.close()
 
-@celery_app.task
 def find_dms_worker(campaign_id: str):
     db = SessionLocal()
     try:
@@ -185,14 +181,13 @@ def find_dms_worker(campaign_id: str):
         print(f"[MISSION CONTROL] DM Finding phase complete for {campaign_id}. Initiating Email Drafting...")
         campaign.status = models.CampaignStatus.DRAFTING_EMAILS
         db.commit()
-        draft_emails_worker.delay(campaign_id)
+        draft_emails_worker(campaign_id)
     except Exception as e:
         print(f"Error in DM Finder Work: {e}")
         db.rollback()
     finally:
         db.close()
 
-@celery_app.task
 def draft_emails_worker(campaign_id: str):
     db = SessionLocal()
     try:
@@ -243,7 +238,6 @@ def draft_emails_worker(campaign_id: str):
     finally:
         db.close()
 
-@celery_app.task(name="app.workers.poll_inbox_task")
 def poll_inbox_task():
     """Background Sentinel: Polls for replies and classifies intent."""
     print("[SENTINEL] Scanning inbox for prospect interactions...")
@@ -331,7 +325,7 @@ def process_intent_transition(db, dm, intent):
             hubspot_provider.update_lead_status(other.hubspot_id, "Terminated (Internal Lead Found)")
         
         # Trigger Discovery Drafting
-        draft_discovery_worker.delay(dm.id)
+        draft_discovery_worker(dm.id)
             
     elif intent == "POSITIVE" and dm.status == "WAITING_FOR_REPLY":
         # Handle reply to discovery call (Booking phase)
@@ -353,12 +347,56 @@ def process_intent_transition(db, dm, intent):
         # RETENTION: Automated Follow-up Trigger
         if dm.followup_count < 11:
             # We don't increment count here, we increment when SENDING
-            draft_followup_worker.delay(dm.id)
+            draft_followup_worker(dm.id)
         else:
             dm.status = "TERMINATED"
             hubspot_provider.update_lead_status(dm.hubspot_id, "Terminated (Exhausted 11 Follow-ups)")
 
-@celery_app.task
+def draft_followup_worker(dm_id: str):
+    """Drafts a persistent follow-up when intent is Neutral."""
+    db = SessionLocal()
+    try:
+        dm = db.query(models.DecisionMaker).filter(models.DecisionMaker.id == dm_id).first()
+        if not dm: return
+        
+        campaign = dm.campaign
+        user_intel = {
+            "company_name": campaign.user_intel.company_name,
+            "deep_research": campaign.user_intel.deep_research
+        }
+        
+        # Build thread history for LLM
+        logs = db.query(models.CommunicationLog).filter(
+            models.CommunicationLog.dm_id == dm.id
+        ).order_by(models.CommunicationLog.received_at.desc()).limit(5).all()
+        
+        history_text = "\n".join([f"{log.direction}: {log.body}" for log in logs])
+        
+        dm.followup_count += 1
+        
+        draft_data = draft_followup_email(
+            user_intel=user_intel,
+            dm_info={"name": dm.name},
+            target_company_name=dm.target_company.name,
+            thread_history=history_text,
+            followup_number=dm.followup_count
+        )
+        
+        if draft_data:
+            new_draft = models.EmailDraft(
+                campaign_id=campaign.id,
+                decision_maker_id=dm.id,
+                subject=draft_data["subject"],
+                body=draft_data["body"],
+                status="DRAFTED"
+            )
+            db.add(new_draft)
+            dm.status = f"FOLLOWUP_{dm.followup_count}_DRAFTED"
+            db.commit()
+            print(f"[FOLLOW-UP] persistence triggered for {dm.name} (#{dm.followup_count})")
+    finally:
+        db.close()
+
 def draft_discovery_worker(dm_id: str):
     """Drafts the initial discovery call request."""
     db = SessionLocal()
@@ -473,7 +511,6 @@ def process_discovery_reply(db, dm, reply_text: str):
     hubspot_provider.update_lead_status(dm.hubspot_id, f"Meeting Booked (IST): {final_ist_dt.strftime('%Y-%m-%d %H:%M')}")
     print(f"[SCHEDULER] SUCCESS: Meeting secured for {dm.name} | {final_ist_dt} IST")
 
-@celery_app.task(name="app.workers.check_upcoming_meetings_task")
 def check_upcoming_meetings_task():
     """Sentinel for meeting reminders."""
     db = SessionLocal()
@@ -519,7 +556,6 @@ def send_reminder(dm, type):
     email_service.send_email(dm.email, subject, body, thread_id=dm.thread_id)
     hubspot_provider.update_lead_status(dm.hubspot_id, f"{type} Reminder Sent")
     print(f"[SENTINEL] {type} Reminder sent to {dm.name}")
-@celery_app.task(name="app.workers.check_inactivity_reminders_task")
 def check_inactivity_reminders_task():
     """Silence Sentinel: Checks for non-responsive prospects and triggers nudges."""
     print("[SENTINEL] Auditing prospect silence levels...")

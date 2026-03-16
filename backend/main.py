@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from app.db.database import get_db, engine
@@ -6,11 +6,28 @@ from app.db import models
 from pydantic import BaseModel
 import uuid
 import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from contextlib import asynccontextmanager
+from app.workers import poll_inbox_task, check_upcoming_meetings_task, check_inactivity_reminders_task
+
+# 1. Background Scheduler for Periodic Tasks
+scheduler = BackgroundScheduler()
+scheduler.add_job(poll_inbox_task, 'interval', minutes=2)
+scheduler.add_job(check_upcoming_meetings_task, 'interval', minutes=15)
+scheduler.add_job(check_inactivity_reminders_task, 'interval', hours=1)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("[SYSTEM] Starting Background Scheduler...")
+    scheduler.start()
+    yield
+    print("[SYSTEM] Shutting down Background Scheduler...")
+    scheduler.shutdown()
 
 # Create tables if they don't exist
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Outreach v3 API")
+app = FastAPI(title="Outreach v3 API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,7 +59,7 @@ class BatchDeleteRequest(BaseModel):
     campaign_ids: list[str]
 
 @app.post("/campaigns", response_model=CampaignResponse)
-def create_campaign(campaign: CampaignCreate, db: Session = Depends(get_db)):
+def create_campaign(campaign: CampaignCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # 1. Create campaign in DB
     campaign_id = str(uuid.uuid4())
     new_campaign = models.Campaign(
@@ -66,9 +83,9 @@ def create_campaign(campaign: CampaignCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_campaign)
     
-    # 3. Trigger Stage 1 Direct Research (Skipping Analysis)
+    # 3. Trigger Stage 1 Direct Research using BackgroundTasks
     from app.workers import research_user_company_worker
-    research_user_company_worker.delay(campaign_id)
+    background_tasks.add_task(research_user_company_worker, campaign_id)
     
     return new_campaign
 

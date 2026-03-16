@@ -9,8 +9,7 @@ langchain-openai
 langchain-core
 langchain-community
 langgraph
-celery[sqlalchemy]
-redis
+apscheduler
 tavily-python
 python-multipart
 hubspot-api-client
