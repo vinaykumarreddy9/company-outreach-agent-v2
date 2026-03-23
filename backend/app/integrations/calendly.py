@@ -5,18 +5,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CALENDLY_API_KEY = os.getenv("CALENDLY_API_KEY")
+CALENDLY_TOKEN = os.getenv("CALENDLY_TOKEN")
+BASE_EVENT_URL = os.getenv("CALENDLY_EVENT_TYPE_URL")
 
 class CalendlyProvider:
     def __init__(self):
         self.base_url = "https://api.calendly.com"
         self.headers = {
-            "Authorization": f"Bearer {CALENDLY_API_KEY}",
+            "Authorization": f"Bearer {CALENDLY_TOKEN}",
             "Content-Type": "application/json"
         }
         self.user_uri = None
         self.event_type_uri = None
-        if CALENDLY_API_KEY:
+        if CALENDLY_TOKEN:
             self._initialize_production_context()
 
     def _initialize_production_context(self):
@@ -65,17 +66,15 @@ class CalendlyProvider:
 
     def book_meeting(self, email: str, name: str, ist_start_time: datetime):
         """
-        Creates a programmatic log of the booking.
-        Note: Calendly's API is primarily pull-based. Programmatic push-booking
-        is usually done via 'Scheduling Links' or external OAuth apps.
-        We return a high-fidelity record including the IST conversion.
+        Creates a high-fidelity scheduling bridge.
+        We return a pre-filled link to your official Calendly event type.
         """
-        # Production Logic: If API key is present, we'd log this as a placeholder or 
-        # trigger a one-off scheduling link.
-        meeting_id = f"v3_{int(ist_start_time.timestamp())}"
+        # Build the pre-filled URL with name and email
+        # Human-equivalent: Passing data so the user just has to click the time slot.
+        final_url = f"{BASE_EVENT_URL}?name={requests.utils.quote(name)}&email={requests.utils.quote(email)}"
         
         return {
-            "link": f"https://calendly.com/outreach-v3-discovery/meeting-{meeting_id}",
+            "link": final_url,
             "start_time_ist": ist_start_time,
             "status": "confirmed"
         }

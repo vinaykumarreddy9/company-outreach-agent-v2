@@ -31,6 +31,25 @@ const ensureAbsoluteUrl = (url) => {
   return `https://${url}`;
 };
 
+const cleanEmailReply = (body) => {
+  if (!body) return "";
+  const patterns = [
+    /\n\s*On\s+.*\s+wrote:/i,
+    /\n\s*-+\s*Original Message\s*-+/i,
+    /\n\s*From:/i,
+    /\n\s*> / 
+  ];
+  
+  let cleaned = body;
+  for (const pattern of patterns) {
+    const splitIndex = cleaned.search(pattern);
+    if (splitIndex !== -1) {
+      cleaned = cleaned.substring(0, splitIndex).trim();
+    }
+  }
+  return cleaned;
+};
+
 const DiscoveryTimer = ({ scheduledTime }) => {
   const [timeLeft, setTimeLeft] = useState("");
 
@@ -77,6 +96,13 @@ const CampaignWorkspace = () => {
   const [expandedReportCompany, setExpandedReportCompany] = useState(null);
   const [showHistoryDM, setShowHistoryDM] = useState(null);
   const [highlightedDraftId, setHighlightedDraftId] = useState(null);
+  const [expandedNodes, setExpandedNodes] = useState([]);
+
+  const toggleNodeExpansion = (nodeId) => {
+    setExpandedNodes(prev => 
+      prev.includes(nodeId) ? prev.filter(id => id !== nodeId) : [...prev, nodeId]
+    );
+  };
 
   const scrollToDraft = (dmId) => {
     if (!dmId || !campaign?.drafts) return;
@@ -185,7 +211,7 @@ const CampaignWorkspace = () => {
     // 1. If all companies are finalized
     const companies = campaign.target_companies || [];
     const allFinalized = companies.length > 0 && companies.every(c => 
-      c.status === "DISCOVERY_BOOKED" || c.status === "TERMINATED"
+      c.status === "DATE_AND_MEETING_SECURED" || c.status === "TERMINATED"
     );
     if (allFinalized) return "COMPLETED";
 
@@ -674,11 +700,10 @@ const CampaignWorkspace = () => {
                         <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Prospect</th>
                         <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Organization</th>
                         <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Status</th>
-                        <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Last Sync</th>
+                        <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Mission Pulse</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {(campaign.dms || []).filter(dm => !["NEW", "SYNCED"].includes(dm.status)).length === 0 ? (
+                    <tbody className="divide-y divide-slate-100">                       {(campaign.dms || []).filter(dm => !["NEW", "SYNCED"].includes(dm.status)).length === 0 ? (
                         <tr>
                           <td colSpan="4" className="px-10 py-20 text-center">
                             <div className="flex flex-col items-center gap-4 text-slate-300">
@@ -689,25 +714,30 @@ const CampaignWorkspace = () => {
                         </tr>
                       ) : (
                         (campaign.dms || []).filter(dm => !["NEW", "SYNCED"].includes(dm.status)).map((dm) => {
-                          const company = campaign.target_companies.find(c => c.id === dm.target_company_id);
+                          // Type-Agnostic Organization Sync Protocol
+                          const company = campaign.target_companies.find(c => String(c.id) === String(dm.target_company_id));
                           
                           // Determine status display
                           let displayStatus = "Waiting for Reply";
                           let statusColor = "bg-blue-50 text-blue-500 border-blue-100";
                           let dotColor = "bg-blue-500";
                           
-                          if (dm.status.includes("DRAFTED")) {
-                            displayStatus = "Action Required (Approval)";
-                            statusColor = "bg-orange-50 text-orange-600 border-orange-100";
-                            dotColor = "bg-orange-500 animate-pulse";
-                          } else if (dm.status === "DISCOVERY_CALL") {
-                            displayStatus = "Discovery Protocol";
-                            statusColor = "bg-emerald-50 text-emerald-600 border-emerald-100";
-                            dotColor = "bg-emerald-500";
-                          } else if (dm.status === "TERMINATED") {
+                          if (dm.status === "TERMINATED") {
                             displayStatus = "Terminated";
                             statusColor = "bg-slate-100 text-slate-400 border-slate-200";
                             dotColor = "bg-slate-300";
+                          } else if (dm.status === "DATE_AND_MEETING_SECURED") {
+                            displayStatus = "Meeting Secured";
+                            statusColor = "bg-emerald-50 text-emerald-600 border-emerald-100";
+                            dotColor = "bg-emerald-500 shadow-emerald-500/20";
+                          } else if (dm.status.includes("DRAFTED")) {
+                            displayStatus = "Action Required (Approval)";
+                            statusColor = "bg-orange-50 text-orange-600 border-orange-100";
+                            dotColor = "bg-orange-500 animate-pulse";
+                          } else if (dm.status === "DISCOVERY_CALL" || dm.status === "WAITING_FOR_REPLY") {
+                            displayStatus = "Discovery Protocol";
+                            statusColor = "bg-emerald-50 text-emerald-600 border-emerald-100";
+                            dotColor = "bg-emerald-500";
                           }
                           
                           return (
@@ -717,7 +747,21 @@ const CampaignWorkspace = () => {
                                   <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center font-black text-slate-400 text-xs shadow-sm">
                                     {dm.name.charAt(0)}
                                   </div>
-                                  <p className="text-sm font-black text-slate-900 tracking-tight uppercase italic">{dm.name}</p>
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-black text-slate-900 tracking-tight uppercase italic">{dm.name}</p>
+                                      {dm.reply_intent && (
+                                        <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter border ${
+                                          dm.reply_intent === 'POSITIVE' ? 'bg-emerald-500 text-white border-emerald-600' :
+                                          dm.reply_intent === 'NEGATIVE' ? 'bg-rose-500 text-white border-rose-600' :
+                                          'bg-amber-400 text-white border-amber-500'
+                                        }`}>
+                                          {dm.reply_intent}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{dm.position || "Stakeholder"}</p>
+                                  </div>
                                   <button 
                                     onClick={() => setShowHistoryDM(dm)}
                                     className="p-2 opacity-0 group-hover:opacity-100 hover:bg-white rounded-lg text-slate-300 hover:text-brand-primary transition-all shadow-sm"
@@ -728,7 +772,13 @@ const CampaignWorkspace = () => {
                                 </div>
                               </td>
                               <td className="px-10 py-6">
-                                <p className="text-xs font-black text-slate-600 uppercase italic tracking-tight">{company?.name}</p>
+                                <div className="flex flex-col gap-1">
+                                  <p className="text-xs font-black text-slate-900 uppercase italic tracking-tight">{company?.name || "Target System"}</p>
+                                  <div className="flex items-center gap-2 text-slate-300">
+                                     <Globe size={10} />
+                                     <span className="text-[8px] font-black uppercase tracking-widest truncate max-w-[120px]">{company?.website?.replace(/(https?:\/\/|www\.|\/)/g, "") || "Direct Connect"}</span>
+                                  </div>
+                                </div>
                               </td>
                               <td className="px-10 py-6">
                                 <div 
@@ -741,15 +791,35 @@ const CampaignWorkspace = () => {
                                 </div>
                               </td>
                               <td className="px-10 py-6 text-right">
-                                <p className="text-[11px] font-black text-slate-600">
-                                  {formatTimeAgo(dm.logs?.[0]?.received_at || dm.last_sync)}
+                                <p className="text-[11px] font-black text-slate-900 uppercase italic tracking-tight">
+                                  {(() => {
+                                    if (dm.status === "TERMINATED") return "Mission Complete";
+                                    if (dm.status === "DATE_AND_MEETING_SECURED") return "Discovery Call Scheduled";
+                                    if (dm.status.includes("DRAFTED")) {
+                                       return `SIGNAL CAPTURED: ${dm.reply_intent || "ANALYZING"}`;
+                                    }
+                                    if (dm.status === "INITIAL_SENT") return "Waiting for Initial Protocol";
+                                    if (dm.status.includes("FOLLOWUP") && dm.status.includes("SENT")) return `Waiting for Follow-up #${dm.followup_count || 1}`;
+                                    if (dm.status === "WAITING_FOR_REPLY" || dm.status === "DISCOVERY_CALL") return "Waiting for Discovery Reply";
+                                    return "Active Engagement";
+                                  })()}
                                 </p>
-                                <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest italic leading-none mt-1">Synced to HubSpot</p>
+                                <div className="flex flex-col items-end gap-1 mt-1">
+                                  <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest italic leading-none">
+                                    {dm.status.includes("DRAFTED") ? "Awaiting Executive Authorization" : "Awaiting Interaction Signal"}
+                                  </p>
+                                  {dm.logs && dm.logs.length > 0 && dm.status.includes("DRAFTED") && (
+                                    <p className="text-[11px] font-semibold text-brand-primary italic max-w-[200px] truncate bg-brand-primary/5 px-2 py-0.5 rounded-md">
+                                      "{(dm.logs.find(l => l.direction === 'RECEIVED')?.body || "").slice(0, 50)}..."
+                                    </p>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
                         })
                       )}
+
                     </tbody>
                   </table>
                 </div>
@@ -900,9 +970,20 @@ const CampaignWorkspace = () => {
                          <div className="flex flex-col h-full">
                             <div className="flex items-start justify-between mb-8">
                               <div className="space-y-1">
-                                <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${dm.status === "WAITING_FOR_REPLY" ? "bg-orange-50 text-orange-500" : "bg-indigo-50 text-indigo-500"}`}>
-                                  {dm.status === "WAITING_FOR_REPLY" ? "Awaiting Reply" : "Ready to Draft"}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${dm.status === "WAITING_FOR_REPLY" ? "bg-orange-50 text-orange-500" : "bg-indigo-50 text-indigo-500"}`}>
+                                    {dm.status === "WAITING_FOR_REPLY" ? "Awaiting Reply" : "Ready to Draft"}
+                                  </span>
+                                  {dm.reply_intent && (
+                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter border ${
+                                      dm.reply_intent === 'POSITIVE' ? 'bg-emerald-500 text-white border-emerald-600' :
+                                      dm.reply_intent === 'NEGATIVE' ? 'bg-rose-500 text-white border-rose-600' :
+                                      'bg-amber-400 text-white border-amber-500'
+                                    }`}>
+                                      {dm.reply_intent}
+                                    </span>
+                                  )}
+                                </div>
                                 <h4 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic pt-2">{dm.name}</h4>
                                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">{co?.name}</p>
                               </div>
@@ -959,13 +1040,13 @@ const CampaignWorkspace = () => {
                           <tr className="bg-slate-50/50">
                             <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Company Repository</th>
                             <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Stakeholder</th>
-                            <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Meeting Target (UTC)</th>
+                            <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Meeting Target (IST)</th>
                             <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Countdown Protocol</th>
                             <th className="px-10 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Coordinate (Link)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                           {(campaign.dms || []).filter(dm => dm.status === "BOOKED").length === 0 ? (
+                           {(campaign.dms || []).filter(dm => dm.status === "DATE_AND_MEETING_SECURED").length === 0 ? (
                              <tr>
                                <td colSpan="5" className="px-10 py-20 text-center">
                                   <div className="flex flex-col items-center gap-4 text-slate-300">
@@ -975,7 +1056,7 @@ const CampaignWorkspace = () => {
                                </td>
                              </tr>
                            ) : (
-                             (campaign.dms || []).filter(dm => dm.status === "BOOKED").map((dm) => {
+                             (campaign.dms || []).filter(dm => dm.status === "DATE_AND_MEETING_SECURED").map((dm) => {
                                const co = campaign.target_companies.find(c => c.id === dm.target_company_id);
                                return (
                                  <tr key={dm.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -992,7 +1073,7 @@ const CampaignWorkspace = () => {
                                     </td>
                                     <td className="px-10 py-8">
                                        <p className="text-[11px] font-black text-slate-800 uppercase tabular-nums">
-                                         {new Date(dm.scheduled_time).toLocaleDateString()} @ {new Date(dm.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          {new Date(dm.scheduled_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).replace(',', ' @')}
                                        </p>
                                     </td>
                                     <td className="px-10 py-8">
@@ -1138,12 +1219,12 @@ const CampaignWorkspace = () => {
                                           {dm.name.charAt(0)}
                                         </div>
                                         <div>
-                                          <Link 
-                                            to={`/campaign/${id}/prospect/${dm.id}`}
-                                            className="text-sm font-black text-slate-900 uppercase italic tracking-tight hover:text-brand-primary transition-colors cursor-pointer"
+                                          <button 
+                                            onClick={() => setShowHistoryDM(dm)}
+                                            className="text-sm font-black text-slate-900 uppercase italic tracking-tight hover:text-brand-primary transition-colors cursor-pointer text-left"
                                           >
                                             {dm.name}
-                                          </Link>
+                                          </button>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{dm.position}</p>
                                         </div>
                                       </div>
@@ -1157,12 +1238,21 @@ const CampaignWorkspace = () => {
                                           <Linkedin size={16} />
                                         </a>
                                         <div className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-tighter ${
-                                          dm.status === "BOOKED" ? "bg-emerald-50 text-emerald-500" : 
+                                          dm.status === "DATE_AND_MEETING_SECURED" ? "bg-emerald-50 text-emerald-500" : 
                                           dm.status.includes("SENT") ? "bg-blue-50 text-blue-500" : 
                                           "bg-slate-100 text-slate-400"
                                         }`}>
                                           {dm.status.replace(/_/g, " ")}
                                         </div>
+                                        {dm.reply_intent && (
+                                          <div className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-tighter shadow-sm border ${
+                                            dm.reply_intent === 'POSITIVE' ? 'bg-emerald-500 text-white border-emerald-600' :
+                                            dm.reply_intent === 'NEGATIVE' ? 'bg-rose-500 text-white border-rose-600' :
+                                            'bg-amber-400 text-white border-amber-500'
+                                          }`}>
+                                            {dm.reply_intent}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   ))}
@@ -1417,7 +1507,7 @@ const CampaignWorkspace = () => {
                     <MessageSquare size={24} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tight">Interaction History</h3>
+                    <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tight">Mission Engagement Chain</h3>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{showHistoryDM.name} • {campaign.target_companies.find(c => c.id === showHistoryDM.target_company_id)?.name}</p>
                   </div>
                 </div>
@@ -1426,23 +1516,60 @@ const CampaignWorkspace = () => {
                 </button>
               </div>
 
-              <div className="flex-grow overflow-y-auto p-8 space-y-6 bg-slate-50/30">
+              <div className="flex-grow overflow-y-auto p-10 space-y-10 bg-slate-50/30 relative">
+                {/* Vertical Timeline Line (The Chain) */}
+                <div className="absolute left-[59px] top-10 bottom-10 w-0.5 bg-slate-200" />
+
+                {/* Node 1: Targeting Strategy (The Origin) */}
+                <div className="relative flex gap-8">
+                   <div className="z-10 bg-white w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center text-slate-400 shadow-sm shrink-0">
+                      <Target size={18} strokeWidth={3} />
+                   </div>
+                   <div 
+                      onClick={() => toggleNodeExpansion('strategy')}
+                      className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm flex-grow cursor-pointer hover:border-brand-primary/20 transition-all"
+                   >
+                      <p className="text-[9px] font-black text-brand-primary uppercase tracking-widest mb-2">Stage 0: Targeting Strategy</p>
+                      <p className="text-xs font-black text-slate-900 uppercase italic tracking-tight mb-2">Strategic Alignment Identification</p>
+                      <p className={`text-sm font-semibold text-slate-500 italic leading-relaxed ${expandedNodes.includes('strategy') ? '' : 'line-clamp-3'}`}>
+                         "{showHistoryDM.similarity_score?.reason || "Lead identified through high-intent LinkedIn reconnaissance."}"
+                      </p>
+                   </div>
+                </div>
+
+                {/* Combined Interaction Timeline (The Chain) */}
                 {(!showHistoryDM.logs || showHistoryDM.logs.length === 0) ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4 italic font-bold">
-                    <Loader2 className="animate-spin" /> Retrieving communication logs...
+                  <div className="relative flex gap-8 opacity-40">
+                    <div className="z-10 bg-slate-100 w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center text-slate-400 shadow-sm shrink-0">
+                       <Clock size={18} strokeWidth={3} />
+                    </div>
+                    <div className="flex flex-col justify-center">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Awaiting Live Engagement Response...</p>
+                    </div>
                   </div>
                 ) : (
-                  [...showHistoryDM.logs].reverse().map((log, i) => (
-                    <div key={i} className={`flex flex-col ${log.direction === "SENT" ? "items-end" : "items-start"}`}>
-                       <div className={`max-w-[85%] rounded-[32px] p-6 shadow-sm border ${log.direction === "SENT" ? "bg-brand-primary text-white border-brand-primary" : "bg-white text-slate-600 border-slate-100"}`}>
-                          <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-60">
-                            {log.direction} • {formatTimeAgo(log.received_at)}
-                          </p>
-                          <p className="text-sm font-bold mb-2 italic">Subject: {log.subject}</p>
-                          <p className="text-sm font-semibold leading-relaxed whitespace-pre-wrap">{log.body}</p>
-                       </div>
-                    </div>
-                  ))
+                  [...showHistoryDM.logs].reverse().map((log, i) => {
+                    const isFirstLog = i === 0;
+                    return (
+                      <div key={i} className="relative flex gap-8">
+                         <div className={`z-10 w-10 h-10 rounded-full border-2 flex items-center justify-center shadow-sm shrink-0 ${log.direction === 'SENT' ? 'bg-indigo-500 border-indigo-600 text-white' : 'bg-emerald-500 border-emerald-600 text-white'}`}>
+                            {log.direction === 'SENT' ? (isFirstLog ? <Bot size={18} strokeWidth={3} /> : <Mail size={18} strokeWidth={3} />) : <MessageSquare size={18} strokeWidth={3} />}
+                         </div>
+                         <div className={`p-6 rounded-[24px] border shadow-sm flex-grow ${log.direction === 'SENT' ? 'bg-indigo-50/5 border-indigo-100' : 'bg-emerald-50/10 border-emerald-100'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                               <p className={`text-[9px] font-black uppercase tracking-widest ${log.direction === 'SENT' ? 'text-indigo-400' : 'text-emerald-500'}`}>
+                                  {log.direction === 'SENT' ? (isFirstLog ? 'Mission Alpha: Inaugural Signal' : 'Mission Outbound') : 'Signal Captured'} • {formatTimeAgo(log.received_at)}
+                               </p>
+                               <div className="p-1 px-2 rounded-md bg-white border border-slate-100 text-[8px] font-black text-slate-400 uppercase tracking-tighter">Sync ID: #{String(log.id).slice(-4)}</div>
+                            </div>
+                            <p className="text-sm font-black text-slate-900 uppercase italic tracking-tight mb-1">Subject: {log.subject}</p>
+                            <p className={`text-sm font-semibold leading-relaxed whitespace-pre-wrap ${log.direction === 'SENT' ? 'text-slate-500 italic' : 'text-slate-700 font-medium'}`}>
+                               {cleanEmailReply(log.body)}
+                            </p>
+                         </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </motion.div>

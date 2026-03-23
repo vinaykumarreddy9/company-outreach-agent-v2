@@ -138,8 +138,8 @@ def batch_delete_campaigns(request: BatchDeleteRequest, db: Session = Depends(ge
     campaign_ids = request.campaign_ids
     campaigns_to_delete = db.query(models.Campaign).filter(models.Campaign.id.in_(campaign_ids)).all()
     count = len(campaigns_to_delete)
-    for campaign in campaigns_to_delete:
-        db.delete(campaign)
+    # High-Performance Bulk Deletion Logic
+    db.query(models.Campaign).filter(models.Campaign.id.in_(campaign_ids)).delete(synchronize_session=False)
     db.commit()
     return {"message": f"Successfully deleted {count} campaigns"}
 
@@ -259,10 +259,10 @@ def send_draft(draft_id: str, db: Session = Depends(get_db)):
         if db_draft.dm:
             dm = db_draft.dm
             dm.last_message_id = msg_id
-            if not dm.thread_id:
-                dm.thread_id = msg_id # Set root for future threading
-            
-            if db_draft.followup_index == 0:
+            if dm.status == "DISCOVERY_CALL":
+                hs_status = "Discovery Invitation Sent"
+                dm.status = "WAITING_FOR_REPLY" # Shared state for 'Wait' but UI will use pulse logic
+            elif db_draft.followup_index == 0:
                 hs_status = "Initial Email Sent"
                 dm.status = "INITIAL_SENT"
             else:

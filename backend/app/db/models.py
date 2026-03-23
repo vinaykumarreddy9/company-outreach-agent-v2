@@ -43,7 +43,7 @@ class UserCompanyIntel(Base):
     __tablename__ = "user_company_intel"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    campaign_id = Column(String, ForeignKey("campaigns.id"))
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="CASCADE"))
     company_name = Column(String, nullable=False)
     website = Column(String)
     motto = Column(Text)
@@ -56,9 +56,10 @@ class TargetCompany(Base):
     __tablename__ = "target_companies"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    campaign_id = Column(String, ForeignKey("campaigns.id"))
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="CASCADE"))
     name = Column(String, nullable=False)
     website = Column(String)
+    domain = Column(String, nullable=True)
     linkedin = Column(String)
     location = Column(String)
     contact_email = Column(String)
@@ -75,11 +76,12 @@ class DecisionMaker(Base):
     __tablename__ = "decision_makers"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    campaign_id = Column(String, ForeignKey("campaigns.id"))
-    target_company_id = Column(String, ForeignKey("target_companies.id"))
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="CASCADE"))
+    target_company_id = Column(String, ForeignKey("target_companies.id", ondelete="CASCADE"))
     name = Column(String, nullable=False)
     position = Column(String)
     email = Column(String)
+    reply_intent = Column(String, nullable=True) # POSITIVE, NEUTRAL, NEGATIVE
     linkedin = Column(String)
     similarity_score = Column(JSON) # Store score and reasoning
     hubspot_id = Column(String, nullable=True)
@@ -105,8 +107,8 @@ class EmailDraft(Base):
     __tablename__ = "email_drafts"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    campaign_id = Column(String, ForeignKey("campaigns.id"))
-    decision_maker_id = Column(String, ForeignKey("decision_makers.id"))
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="CASCADE"))
+    decision_maker_id = Column(String, ForeignKey("decision_makers.id", ondelete="CASCADE"))
     subject = Column(String)
     body = Column(Text)
     status = Column(String, default="DRAFTED") # DRAFTED, APPROVED, SENT
@@ -122,8 +124,8 @@ class CommunicationLog(Base):
     __tablename__ = "communication_logs"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    campaign_id = Column(String, ForeignKey("campaigns.id"))
-    dm_id = Column(String, ForeignKey("decision_makers.id"))
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="CASCADE"))
+    dm_id = Column(String, ForeignKey("decision_makers.id", ondelete="CASCADE"))
     direction = Column(String) # SENT, RECEIVED
     subject = Column(String)
     body = Column(Text)

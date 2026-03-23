@@ -1,133 +1,234 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-import requests
-from pydantic import BaseModel, Field
-from typing import List
-import json
 import os
+import json
+import requests
+import re
+from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+# LangChain / OpenAI
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
+
+# Try to import search tools (Safe imports)
+try:
+    from tavily import TavilyClient
+except ImportError:
+    TavilyClient = None
+
+try:
+    # On some systems this is 'from ddgs import DDGS', on others 'from duckduckgo_search import DDGS'
+    # We follow the project's requirements.txt which lists 'ddgs'
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
+
+# Load environment
 load_dotenv()
 
+# API Keys
 ZENSERP_API_KEY = os.getenv("ZENSERP_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini", 
-    temperature=0,
-)
+# --- DATA MODELS ---
 
-class CompanyProfile(BaseModel):
-    name: str = Field(description="Official company name")
-    website: str = Field(description="Verified website URL or 'unknown'")
-    linkedin: str = Field(description="LinkedIn company URL")
-    location: str = Field(description="HQ or office location")
-    employee_count: str = Field(description="Employee count range")
-    description: str = Field(description="Business focus snippet")
-    deep_research: str = Field(description="Analysis of why this company is a high-value target")
-    similarity_score: int = Field(description="Score from 0-100 based on synergy")
-    score_reason: str = Field(description="Reasoning for the assigned score")
-    stage_1_passed: bool = Field(description="True if location matches criteria")
+class DeduplicatedCompany(BaseModel):
+    name: str = Field(description="Clean, official company name.")
+    linkedin_url: str = Field(description="LinkedIn company profile URL.")
+    description: str = Field(description="Short snippet from search.")
 
-class ExtractedCompanies(BaseModel):
-    companies: List[CompanyProfile] = Field(description="List of extracted and audited unique companies")
+class DeduplicationResult(BaseModel):
+    companies: List[DeduplicatedCompany]
 
-def perform_zenserp_search(q: str, pages: int = 3) -> list:
-    all_results = []
-    headers = {"apikey": ZENSERP_API_KEY} if ZENSERP_API_KEY else {}
-    
-    print(f" [Zenserp] Searching {pages} pages for: {q}")
-    for page in range(pages):
-        start = page * 10
-        params = {
-            "q": q,
-            "num": 10,
-            "start": start,
-            "engine": "google",
-        }
+class CompanyValidation(BaseModel):
+    name: str
+    is_industry_match: bool = Field(description="True if the entity strictly matches the target sector or industry verticle.")
+    is_offering_synergy: bool = Field(description="True if there is a demonstrated ROI potential for our unique offerings.")
+    synergy_score: int = Field(description="0-100 score.")
+    val_reasoning: str = Field(description="Match analysis.")
+    is_valid_lead: bool = Field(description="Final decision.")
+
+# --- PIPELINE COMPONENTS ---
+
+class CompanyFinderPipeline:
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        self.tavily = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY and TavilyClient else None
+
+    def get_domain(self, url: str) -> str:
         try:
-            response = requests.get('https://app.zenserp.com/api/v2/search', headers=headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            page_results = data.get("organic", [])
-            if not page_results: 
-                print(f" [Zenserp] No more results on page {page+1}")
-                break
-            all_results.extend(page_results)
-            print(f" [Zenserp] Page {page+1} found {len(page_results)} results.")
-        except Exception as e:
-            print(f" [Zenserp] Error on page {page+1}: {e}")
-            break
-    return all_results
+            if not url or url == "unknown": return "unknown"
+            domain = urlparse(url).netloc
+            return domain[4:] if domain.startswith("www.") else domain
+        except: return "unknown"
 
-def find_target_companies(target_criteria: dict, user_offering: list):
-    user_offering_str = ", ".join(user_offering)
-    industry = target_criteria.get("industry", "N/A")
-    location = target_criteria.get("location", target_criteria.get("region", "N/A"))
-    emp_count = target_criteria.get("employee_count")
-    
-    # 1. Dynamic LinkedIn Query
-    if emp_count:
-        query = f'site:linkedin.com/company "{industry}" "{location}" "{emp_count}"'
-    else:
+    def stage_1_recon(self, industry: str, location: str, size: str) -> list:
         query = f'site:linkedin.com/company "{industry}" "{location}"'
-    
-    # 2. Sequential 3-Page Fetch (Total 30 results expected)
-    raw_results = perform_zenserp_search(query, pages=3)
-    
-    if not raw_results:
-        print(" [Finder] Zero results found.")
-        return
-
-    # 3. LLM Extraction & Deduplication Node
-    structured_llm = llm.with_structured_output(ExtractedCompanies)
-    
-    emp_hint = f"Desired Employee Count: {emp_count}" if emp_count else "Any size (Startup to Enterprise)."
-    
-    sys_prompt = f"""
-    You are a Senior Lead Generation Auditor. Your task is to extract, verify, and deduplicate high-fidelity target companies from raw Google Search snippets.
-    
-    TARGET CRITERIA:
-    - Target Industry: {industry}
-    - Target Location: {location}
-    - {emp_hint}
-    - User Offering (Synergy): {user_offering_str}
-    
-    SCORING ENGINE RULES:
-    1. EXTRACT: Only extract legitimate companies. Ignore aggregators (G2, Clutch, etc.) unless they are specifically about the company.
-    2. DEDUPLICATE: Merge multiple snippets for the same entity into one high-quality entry.
-    3. LOCATION VALIDATION (stage_1_passed): 
-       - Set to True if the snippet confirms they are in "{location}" OR have a significant regional presence/branch there.
-       - Set to False if they are strictly located elsewhere with no mention of "{location}".
-    4. SYNERGY AUDIT (similarity_score 0-100):
-       - Compare the target's business model with: "{user_offering_str}".
-       - 90-100: Perfect match (e.g., they need our software to run their business).
-       - 70-89: Good match (complementary services/audience).
-       - < 70: Low synergy or irrelevant industry.
-    5. DATA COMPLETENESS: Ensure website is 'unknown' if not found, rather than guessing.
-    6. OUTPUT LIMIT: Return exactly the top 15 most relevant unique companies. If fewer than 15 exist, return all relevant ones.
-    
-    Think step-by-step for each raw result before adding to the output.
-    """
-    
-    messages = [
-        SystemMessage(content=sys_prompt),
-        HumanMessage(content=f"Raw Search Results:\n{json.dumps(raw_results, indent=2)}")
-    ]
-    
-    try:
-        print(f" [Finder] LLM Audit & Deduplication of {len(raw_results)} candidates...")
-        response = structured_llm.invoke(messages)
+        if size: query += f' "{size}"'
         
-        # Binary validation for the database worker
-        for co in response.companies[:15]:
-            result = co.model_dump()
-            
-            # Map for worker compatibility
-            result["rejection_reason"] = "Location or Industry mismatch" if not co.stage_1_passed or co.similarity_score < 70 else None
-            result["contact_email"] = "N/A"
-            result["contact_number"] = "N/A"
-            
-            yield result
-            
-    except Exception as e:
-        print(f" [Finder] LLM Error: {e}")
+        print(f" [Pipeline] Stage 1: Zenserp Recon for '{query}'")
+        all_results = []
+        headers = {"apikey": ZENSERP_API_KEY} if ZENSERP_API_KEY else {}
+        
+        for page in range(3): # Fetch 3 pages (30 results)
+            params = {"q": query, "num": 10, "start": page * 10, "engine": "google"}
+            try:
+                response = requests.get('https://app.zenserp.com/api/v2/search', headers=headers, params=params)
+                response.raise_for_status()
+                page_results = response.json().get("organic", [])
+                if not page_results: break
+                all_results.extend(page_results)
+            except Exception as e:
+                print(f" [Pipeline] Recon Error Page {page+1}: {e}")
+                break
+        return all_results
+
+    def stage_2_dedup(self, raw_results: list) -> List[DeduplicatedCompany]:
+        if not raw_results: return []
+        print(f" [Pipeline] Stage 2: Deduplicating {len(raw_results)} snippets...")
+        structured_llm = self.llm.with_structured_output(DeduplicationResult)
+        
+        sys_prompt = "You are a Lead Auditor. Merge duplicates and aliases. Reject aggregators (Clutch, G2). Return clean company list."
+        messages = [SystemMessage(content=sys_prompt), HumanMessage(content=json.dumps(raw_results, indent=2))]
+        
+        try:
+            return structured_llm.invoke(messages).companies
+        except Exception as e:
+            print(f" [Pipeline] Dedup Error: {e}")
+            return []
+
+    def stage_3_research_one(self, company_name: str) -> dict:
+        print(f" [Pipeline] Researching: {company_name}...")
+        results = []
+        site = "unknown"
+        
+        # 1. Tavily
+        if self.tavily:
+            try:
+                resp = self.tavily.search(query=f'"{company_name}" official website about us', search_depth="advanced", max_results=3)
+                t_results = resp.get('results', [])
+                results.extend(t_results)
+                for r in t_results:
+                    url = r.get('url', '')
+                    if not any(x in url.lower() for x in ["linkedin.com", "facebook.com", "twitter.com"]):
+                        site = url; break
+            except: pass
+
+        # 2. DDGS Fallback
+        if DDGS and (site == "unknown"):
+            try:
+                with DDGS() as ddgs:
+                    ddg_results = list(ddgs.text(f'"{company_name}" official website', max_results=3))
+                    for r in ddg_results:
+                        results.append({"title": r['title'], "url": r['href'], "content": r['body']})
+                        if site == "unknown": site = r['href']
+            except: pass
+
+        return {
+            "name": company_name, 
+            "website": site, 
+            "domain": self.get_domain(site), 
+            "raw_research": results
+        }
+
+    def stage_4_validate(self, industry: str, offerings: List[str], res_data: dict) -> CompanyValidation:
+        structured_llm = self.llm.with_structured_output(CompanyValidation)
+        off_str = ", ".join(offerings)
+        
+        sys_prompt = f"Expert Lead Auditor. Target Sector: {industry}. Unique Offerings: {off_str}. YOUR MISSION: Audit if the company is a high-fidelity match for the target sector and if our offerings solve a core problem for them. REJECT if industry fit is weak or Synergy < 80%."
+        context = json.dumps(res_data.get('raw_research', [])[:3], indent=2)
+        
+        msg = f"Company: {res_data['name']}\nWebsite: {res_data['website']}\nResearch Data:\n{context}"
+        try:
+            return structured_llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=msg)])
+        except Exception as e:
+            print(f" [Pipeline] Validation failed for {res_data['name']}: {e}")
+            return CompanyValidation(name=res_data['name'], is_industry_match=False, is_offering_synergy=False, synergy_score=0, val_reasoning="Sync Error", is_valid_lead=False)
+
+    def stage_3_synthesize(self, name: str, raw_research: List[Dict]) -> str:
+        """
+        Uses LLM to convert noisy search snippets into a clean, high-fidelity narrative.
+        """
+        if not raw_research:
+            return "No verifiable research artifacts discovered."
+
+        prompt = f"""You are a Lead Intelligence Analyst. 
+RECON DATA for {name}:
+{json.dumps(raw_research, indent=2)}
+
+MISSION: 
+- Transform these raw, noisy search snippets into a clean, human-readable intelligence report.
+- CRITICAL: Do not miss any tangible data points (locations, specific products, employee size, tech stack).
+- FORMAT: Use professional prose and clear bullet points. 
+- QUALITY: Strictly remove all JSON noise, escaped characters (like \\u2019), and technical metadata.
+- Output ONLY the formatted report."""
+
+        messages = [
+            SystemMessage(content="You are a meticulous Lead Intelligence Analyst. Output only high-fidelity, clean reports."),
+            HumanMessage(content=prompt)
+        ]
+        
+        try:
+            response = self.llm.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            print(f" [Pipeline] Synthesis failed for {name}: {e}")
+            return "Analysis pending synchronized review."
+
+# --- PROD INTERFACE ---
+
+def find_target_companies(target_criteria: dict, user_offerings: list):
+    """
+    Main entry point for the Company Finder Agent.
+    Orchestrates the 4-stage ELITE pipeline.
+    """
+    pipeline = CompanyFinderPipeline()
+    
+    industry = target_criteria.get("industry", "Manufacturing")
+    location = target_criteria.get("location", "UK")
+    size = target_criteria.get("employee_count", "")
+
+    # 1. Recon
+    raw_candidates = pipeline.stage_1_recon(industry, location, size)
+    if not raw_candidates: return
+
+    # 2. Dedup
+    unique_companies = pipeline.stage_2_dedup(raw_candidates)
+    if not unique_companies: return
+
+    # 3. Deep Research (Concurrent)
+    research_results = []
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futures = {ex.submit(pipeline.stage_3_research_one, c.name): c for c in unique_companies}
+        for f in as_completed(futures):
+            research_results.append((f.result(), futures[f]))
+
+    # 4. Final Audit (Validation)
+    for res_item, original_meta in research_results:
+        print(f" [Pipeline] Auditing {res_item['name']}...")
+        audit = pipeline.stage_4_validate(industry, user_offerings, res_item)
+        
+        # 5. Synthesis (Human Readable Reframe)
+        print(f" [Pipeline] Synthesizing narrative for {res_item['name']}...")
+        clean_research = pipeline.stage_3_synthesize(res_item['name'], res_item['raw_research'])
+
+        is_valid = audit.is_valid_lead
+        
+        yield {
+            "name": res_item['name'],
+            "website": res_item['website'],
+            "domain": res_item['domain'],
+            "linkedin": original_meta.linkedin_url,
+            "location": location,
+            "description": original_meta.description,
+            "deep_research": clean_research,
+            "similarity_score": audit.synergy_score,
+            "score_reason": audit.val_reasoning,
+            "status": "NEW" if is_valid else "REJECTED",
+            "rejection_reason": audit.val_reasoning if not is_valid else None
+        }

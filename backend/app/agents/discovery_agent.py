@@ -58,14 +58,23 @@ def extract_schedule_info(reply_text: str, current_date: str, location_context: 
         print(f"Schedule Extraction Error: {e}")
         return None
 
-DISCOVERY_DRAFTER_PROMPT = """You are a Strategic Deal Closer.
-Draft a high-touch Discovery Call request email.
+DISCOVERY_DRAFTER_PROMPT = """You are a World-Class Strategic Deal Closer.
+Draft a high-touch Discovery Call request email in response to a prospect's interest.
 
-User Company Info: {user_company_intel}
+User Company Info:
+- Identity: {user_company_name}
+- Specialization: {user_company_offerings}
+- Context: {user_company_research}
+
 Decision Maker: {dm_name} ({dm_position}) at {target_company}
 Prospect's Last Interest: "{last_interest_context}"
 
-Goal: Ask for a 15-minute discovery call. Be professional, organic, and reference their previous reply to show it's a person writing this, not a bot.
+STRICT CONSTRAINTS:
+1. NO PLACEHOLDERS. Never use brackets like [Your Name], [Company Name], or [Your Position].
+2. NO BRACKETED SIGNATURES. End the email professionally using ONLY the company identity "{user_company_name}".
+3. NARRATIVE FLOW: Reference their specific interest and suggest a 15-minute discovery call via IST-synchronized scheduling.
+4. ORGANIC TONE: Speak like a senior executive, not a bot or a junior SDR. No corporate cliché.
+5. LENGTH: Keep it under 100 words. Return ONLY the JSON-wrapped response.
 """
 
 class DiscoveryEmailResponse(BaseModel):
@@ -79,7 +88,9 @@ def draft_discovery_request(user_intel: dict, dm_name: str, dm_position: str, ta
     
     try:
         response = chain.invoke({
-            "user_company_intel": str(user_intel),
+            "user_company_name": user_intel.get("name", ""),
+            "user_company_offerings": user_intel.get("offerings", ""),
+            "user_company_research": user_intel.get("deep_research", ""),
             "dm_name": dm_name,
             "dm_position": dm_position,
             "target_company": target_company,

@@ -84,27 +84,26 @@ def find_companies_worker(campaign_id: str):
         # 1. Find Companies (Incremental Store)
         for co in find_target_companies(criteria, offerings_list):
             score = co.get("similarity_score", 0)
-            stage_1 = co.get("stage_1_passed", False)
-            
-            # Binary Status Logic: ACTIVE only if Stage 1 AND Stage 2 pass (Score >= 70).
-            is_valid = stage_1 and score >= 70
+            status = co.get("status", "REJECTED")
+            is_valid = (status == "NEW")
             
             new_co = models.TargetCompany(
                 campaign_id=campaign_id,
                 name=co.get("name"),
                 website=co.get("website"),
+                domain=co.get("domain"),
                 linkedin=co.get("linkedin"),
                 location=co.get("location"),
-                contact_email=co.get("contact_email"),
-                contact_number=co.get("contact_number"),
+                contact_email="N/A",
+                contact_number="N/A",
                 deep_research=co.get("deep_research"),
                 similarity_score={"score": score, "reason": co.get("score_reason", "")},
-                rejection_reason=co.get("rejection_reason") if not is_valid else None,
-                status="NEW" if is_valid else "REJECTED"
+                rejection_reason=co.get("rejection_reason"),
+                status=status
             )
             db.add(new_co)
             db.commit() # Flush immediately for UI polling
-            print(f"Incremental Discovery: Saved {co.get('name')} (Score: {score})")
+            print(f"Incremental Discovery: Saved {co.get('name')} ({status} | Score: {score})")
 
         # 2. Trigger next isolated agent
         campaign.status = models.CampaignStatus.FINDING_DECISION_MAKERS
@@ -113,8 +112,19 @@ def find_companies_worker(campaign_id: str):
     except Exception as e:
         print(f"Error in Company Finder Work: {e}")
         db.rollback()
-    finally:
-        db.close()
+def predict_prospect_email(name: str, domain: str) -> str:
+    """
+    Generates a high-probability corporate email address based on name and domain.
+    Standard: firstname.lastname@domain
+    """
+    if not name or not domain or domain == "unknown":
+        return None
+    
+    clean_name = re.sub(r'[^a-zA-Z\s]', '', name).lower().strip()
+    parts = clean_name.split()
+    if len(parts) >= 2:
+        return f"{parts[0]}.{parts[-1]}@{domain}"
+    return f"{parts[0]}@{domain}"
 
 def find_dms_worker(campaign_id: str):
     print(f"[MISSION CONTROL] Phase: DM Discovery for {campaign_id}")
@@ -164,8 +174,12 @@ def find_dms_worker(campaign_id: str):
                             local_db.add(new_dm)
                             local_db.flush()
                             
+                            # Generate and store predicted email
+                            email = predict_prospect_email(dm.get("name"), co.domain)
+                            new_dm.email = email
+                            
                             try:
-                                hs_id = hubspot_provider.create_lead(dm, co.name)
+                                hs_id = hubspot_provider.create_lead(dm, co.name, email=email)
                                 if hs_id:
                                     new_dm.hubspot_id = hs_id
                                     new_dm.status = "SYNCED"
@@ -301,9 +315,13 @@ def poll_inbox_task():
                         print(f"[SENTINEL] Match Found via Email Fallback: {dm.name}")
 
             if dm:
-                # Already processed this message? 
-                existing_log = db.query(models.CommunicationLog).filter(models.CommunicationLog.message_id == reply["message_id"]).first()
-                if existing_log: continue
+                # 2. Duplicate Detection (Direction-Aware)
+                existing_log = db.query(models.CommunicationLog).filter(
+                    models.CommunicationLog.message_id == reply.get("message_id"),
+                    models.CommunicationLog.direction == "RECEIVED"
+                ).first()
+                if existing_log: 
+                    continue
 
                 print(f"[SENTINEL] Match Found: {dm.name} from {dm.target_company.name}")
                 
@@ -319,6 +337,7 @@ def poll_inbox_task():
                 classification = classify_reply_intent(original_text, reply["body"])
                 intent = classification["intent"]
                 reason = classification["reasoning"]
+                dm.reply_intent = intent
                 print(f"[SENTINEL] Intent for {dm.name}: {intent} ({reason})")
 
                 # 4. Log Communication
@@ -345,32 +364,35 @@ def poll_inbox_task():
 
 def process_intent_transition(db, dm, intent):
     """Executes the business logic of Phase 2 transitions."""
-    if intent == "POSITIVE" and dm.status != "WAITING_FOR_REPLY":
-        # WIN: Start Discovery Phase (Invitation)
-        # Immediate Termination of others at same company
-        target_co = dm.target_company
-        target_co.status = "DISCOVERY_CALL"
-        others = db.query(models.DecisionMaker).filter(
-            models.DecisionMaker.target_company_id == target_co.id,
-            models.DecisionMaker.id != dm.id
-        ).all()
-        for other in others:
-            other.status = "TERMINATED"
-            hubspot_provider.update_lead_status(other.hubspot_id, "Terminated (Internal Lead Found)")
+    if intent == "POSITIVE":
+        # Strategy: We REQUIRE two phases for discovery. 
+        # Phase 1: Prospect expresses interest -> Request availability.
+        # Phase 2: Prospect replies to availability request with a timeslot -> Book.
         
-        # Trigger Discovery Drafting
-        draft_discovery_worker(dm.id)
+        if dm.status != "WAITING_FOR_REPLY":
+            # Phase 1: Start Discovery Phase (Invitation)
+            # Immediate Termination of others at same company to avoid duplicate threads
+            target_co = dm.target_company
+            if target_co: target_co.status = "DISCOVERY_CALL"
+            others = db.query(models.DecisionMaker).filter(
+                models.DecisionMaker.target_company_id == target_co.id,
+                models.DecisionMaker.id != dm.id
+            ).all()
+            for other in others:
+                other.status = "TERMINATED"
+                hubspot_provider.update_lead_status(other.hubspot_id, "Terminated (Internal Lead Found)")
             
-    elif intent == "POSITIVE" and dm.status == "WAITING_FOR_REPLY":
-        # Handle reply to discovery call (Booking phase)
-        # We find the last received message for text
-        last_reply = db.query(models.CommunicationLog).filter(
-            models.CommunicationLog.dm_id == dm.id,
-            models.CommunicationLog.direction == "RECEIVED"
-        ).order_by(models.CommunicationLog.received_at.desc()).first()
-        
-        if last_reply:
-            process_discovery_reply(db, dm, last_reply.body)
+            # Trigger Discovery Drafting (The Availability Request)
+            draft_discovery_worker(dm.id, db=db)
+        else:
+            # Phase 2: Prospect has replied to our specific availability request
+            last_reply = db.query(models.CommunicationLog).filter(
+                models.CommunicationLog.dm_id == dm.id,
+                models.CommunicationLog.direction == "RECEIVED"
+            ).order_by(models.CommunicationLog.received_at.desc()).first()
+            
+            if last_reply: 
+                process_discovery_reply(db, dm, last_reply.body)
             
     elif intent == "NEGATIVE":
         # LOSS: Terminate DM
@@ -431,17 +453,30 @@ def draft_followup_worker(dm_id: str):
     finally:
         db.close()
 
-def draft_discovery_worker(dm_id: str):
+def draft_discovery_worker(dm_id: str, db=None):
     """Drafts the initial discovery call request."""
-    db = SessionLocal()
+    should_close = False
+    if db is None:
+        db = SessionLocal()
+        should_close = True
     try:
         dm = db.query(models.DecisionMaker).filter(models.DecisionMaker.id == dm_id).first()
         if not dm: return
         
         campaign = dm.campaign
+        user_intel_obj = campaign.user_intel
+        offerings = []
+        try:
+            offerings = json.loads(user_intel_obj.offerings)
+            if not isinstance(offerings, list):
+                offerings = [str(offerings)]
+        except:
+            offerings = [str(user_intel_obj.offerings)]
+            
         user_intel = {
-            "name": campaign.user_intel.company_name,
-            "deep_research": campaign.user_intel.deep_research
+            "name": user_intel_obj.company_name,
+            "offerings": ", ".join(offerings) if offerings else "AI-driven professional solutions",
+            "deep_research": user_intel_obj.deep_research
         }
         
         # Get last reply to use as context
@@ -467,10 +502,16 @@ def draft_discovery_worker(dm_id: str):
                 status="DRAFTED"
             )
             db.add(new_draft)
-            db.commit()
-            print(f"[DISCOVERY] Draft created for {dm.name}")
+            dm.status = "DISCOVERY_CALL"
+            if should_close:
+                db.commit()
+            print(f"[DISCOVERY] Draft created for {dm.name} and status updated to DISCOVERY_CALL")
+    except Exception as e:
+        if should_close: db.rollback()
+        raise e
     finally:
-        db.close()
+        if should_close:
+            db.close()
 
 def process_discovery_reply(db, dm, reply_text: str):
     """Autonomous Scheduling Agent Logic with IST Normalization."""
@@ -536,7 +577,9 @@ def process_discovery_reply(db, dm, reply_text: str):
     booking = calendly_provider.book_meeting(dm.email, dm.name, final_ist_dt)
     
     # 5. Commit to Intelligence Vault
-    dm.status = "BOOKED"
+    dm.status = "DATE_AND_MEETING_SECURED"
+    if dm.target_company:
+        dm.target_company.status = "DATE_AND_MEETING_SECURED"
     dm.meeting_link = booking["link"]
     dm.scheduled_time = final_ist_dt
     dm.timezone = "IST" # Always store as IST now
@@ -550,8 +593,8 @@ def check_upcoming_meetings_task():
     db = SessionLocal()
     try:
         now = datetime.datetime.now(UTC)
-        # Find all booked DMs
-        booked_dms = db.query(models.DecisionMaker).filter(models.DecisionMaker.status == "BOOKED").all()
+        # Find all secured DMs
+        booked_dms = db.query(models.DecisionMaker).filter(models.DecisionMaker.status == "DATE_AND_MEETING_SECURED").all()
         
         for dm in booked_dms:
             if not dm.scheduled_time: continue
