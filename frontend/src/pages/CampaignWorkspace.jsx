@@ -442,80 +442,133 @@ const CampaignWorkspace = () => {
                     <p className="text-slate-400 font-black uppercase text-xs tracking-widest">Hunting for lead artifacts...</p>
                  </div>
                ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {campaign.target_companies.filter(co => {
-                      const hasProspects = (campaign.dms || []).some(dm => dm.target_company_id === co.id);
-                      // Showing all leads currently for debugging and high transparency
-                      return true;
-                    }).map((company) => (
-                      <motion.div 
-                        key={company.id}
-                       whileHover={{ y: -5, scale: 1.01, boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)" }}
-                       transition={{ type: "spring", stiffness: 300 }}
-                       onClick={() => setSelectedCompany(company)}
-                       className="bg-white rounded-[40px] p-10 cursor-pointer group relative overflow-hidden transition-all shadow-sm"
-                     >
-                        {/* Static Enlarge Protocol (No highlight on hover) */}
-                        <div className="absolute top-0 right-0 p-8 text-slate-200">
-                           <Maximize2 size={20} strokeWidth={3} />
-                        </div>
+                <div className="space-y-12">
+                   {/* Approved Companies Grid */}
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                     {campaign.target_companies.filter(co => co.status !== 'REJECTED').map((company) => (
+                       <motion.div 
+                         key={company.id}
+                        whileHover={{ y: -5, scale: 1.01, boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)" }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                        onClick={() => setSelectedCompany(company)}
+                        className="bg-white rounded-[40px] p-10 cursor-pointer group relative overflow-hidden transition-all shadow-sm"
+                      >
+                         <div className="absolute top-0 right-0 p-8 text-slate-200">
+                            <Maximize2 size={20} strokeWidth={3} />
+                         </div>
 
-                        <div className="space-y-6">
-                           <div className="flex items-center justify-between gap-4 pr-10">
-                              <h4 className={`text-2xl font-black tracking-tighter leading-tight truncate uppercase italic ${company.status === 'REJECTED' ? 'text-slate-400' : 'text-slate-900'}`}>
-                                 {company.name}
-                              </h4>
-                              <span className={`flex-shrink-0 px-3 py-1 text-[11px] font-black rounded-lg border ${company.status === 'REJECTED' ? 'bg-red-50 text-red-500 border-red-100' : 'bg-brand-primary/10 text-brand-primary border-brand-primary/10'}`}>
-                                 {company.status === 'REJECTED' ? 'REJECTED' : `${company.similarity_score?.score}% ALIGNMENT`}
-                              </span>
-                           </div>
+                         <div className="space-y-6">
+                            <div className="flex items-center justify-between gap-4 pr-10">
+                               <h4 className="text-2xl font-black text-slate-900 tracking-tighter leading-tight truncate uppercase italic">
+                                  {company.name}
+                               </h4>
+                               <span className="flex-shrink-0 px-3 py-1 text-[11px] font-black rounded-lg border bg-brand-primary/10 text-brand-primary border-brand-primary/10">
+                                  APPROVED
+                               </span>
+                            </div>
 
-                           <div className="space-y-4">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">Intelligence Artifacts</p>
-                              <div className="flex flex-col gap-3">
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                                       <Monitor size={14} />
-                                    </div>
-                                    <p className="text-xs font-bold text-slate-600 truncate">{company.location || "Location Synchronizing..."}</p>
-                                 </div>
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                                       <Mail size={14} />
-                                    </div>
-                                    <p className="text-xs font-bold text-slate-600 truncate">{company.contact_email || "Email Discovery Active..."}</p>
-                                 </div>
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                                       <PhoneCall size={14} />
-                                    </div>
-                                    <p className="text-xs font-bold text-slate-600 truncate">{company.contact_number || "Awaiting Contact Probe..."}</p>
-                                 </div>
-                              </div>
-                              <p className="text-slate-500 font-semibold text-sm leading-relaxed line-clamp-3 italic pt-2">
-                                 "{company.deep_research || "Conducting in-depth organization analysis..."}"
-                              </p>
+                            <div className="space-y-4">
+                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">Intelligence Artifacts</p>
+                               <div className="flex flex-col gap-3">
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                        <Monitor size={14} />
+                                     </div>
+                                     <p className="text-xs font-bold text-slate-600 truncate">{company.location || "Location Synchronizing..."}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                        <Mail size={14} />
+                                     </div>
+                                     <p className="text-xs font-bold text-slate-600 truncate">{company.contact_email || "Email Discovery Active..."}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                        <PhoneCall size={14} />
+                                     </div>
+                                     <p className="text-xs font-bold text-slate-600 truncate">{company.contact_number || "Awaiting Contact Probe..."}</p>
+                                  </div>
+                               </div>
+                               <p className="text-slate-500 font-semibold text-sm leading-relaxed line-clamp-3 italic pt-2">
+                                  "{company.deep_research || "Conducting in-depth organization analysis..."}"
+                               </p>
+                            </div>
+                            
+                            <div className="flex items-center gap-3 pt-6 border-t border-slate-50">
+                               <a 
+                                 href={ensureAbsoluteUrl(company.website)} target="_blank" rel="noreferrer" 
+                                 className="flex-grow flex items-center justify-center py-3.5 bg-slate-50 rounded-2xl text-slate-400 hover:bg-brand-primary/10 hover:text-brand-primary hover:scale-[1.05] active:scale-95 transition-all"
+                                 onClick={(e) => e.stopPropagation()}
+                               >
+                                 <Globe size={20} />
+                               </a>
+                               <a 
+                                 href={ensureAbsoluteUrl(company.linkedin)} target="_blank" rel="noreferrer" 
+                                 className="flex-grow flex items-center justify-center py-3.5 bg-slate-50 rounded-2xl text-slate-400 hover:bg-[#0077b5]/10 hover:text-[#0077b5] hover:scale-[1.05] active:scale-95 transition-all"
+                                 onClick={(e) => e.stopPropagation()}
+                               >
+                                 <Linkedin size={20} />
+                               </a>
+                            </div>
+                         </div>
+                      </motion.div>
+                     ))}
+                   </div>
+                   
+                   {/* Rejected Companies Grid */}
+                   {campaign.target_companies.some(co => co.status === 'REJECTED') && (
+                     <div className="pt-10 border-t-2 border-dashed border-slate-200">
+                        <div className="flex items-center gap-3 mb-8 opacity-70">
+                           <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-500">
+                              <AlertCircle size={20} strokeWidth={3} />
                            </div>
-                           
-                           <div className="flex items-center gap-3 pt-6 border-t border-slate-50">
-                              <a 
-                                href={ensureAbsoluteUrl(company.website)} target="_blank" rel="noreferrer" 
-                                className="flex-grow flex items-center justify-center py-3.5 bg-slate-50 rounded-2xl text-slate-400 hover:bg-brand-primary/10 hover:text-brand-primary hover:scale-[1.05] active:scale-95 transition-all"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Globe size={20} />
-                              </a>
-                              <a 
-                                href={ensureAbsoluteUrl(company.linkedin)} target="_blank" rel="noreferrer" 
-                                className="flex-grow flex items-center justify-center py-3.5 bg-slate-50 rounded-2xl text-slate-400 hover:bg-[#0077b5]/10 hover:text-[#0077b5] hover:scale-[1.05] active:scale-95 transition-all"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Linkedin size={20} />
-                              </a>
+                           <div>
+                             <h3 className="text-lg font-black text-slate-900 uppercase italic tracking-tight">Rejected Artifacts</h3>
+                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Failed strategic alignment criteria</p>
                            </div>
                         </div>
-                     </motion.div>
-                   ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+                          {campaign.target_companies.filter(co => co.status === 'REJECTED').map((company) => (
+                            <div 
+                              key={company.id}
+                              className="bg-slate-50 rounded-[40px] p-10 relative overflow-hidden border border-slate-200"
+                            >
+                               <div className="space-y-6">
+                                  <div className="flex items-center justify-between gap-4 pr-10">
+                                     <h4 className="text-2xl font-black text-slate-400 tracking-tighter leading-tight truncate uppercase italic">
+                                        {company.name}
+                                     </h4>
+                                     <span className="flex-shrink-0 px-3 py-1 text-[11px] font-black rounded-lg border bg-red-50 text-red-500 border-red-100">
+                                        REJECTED
+                                     </span>
+                                  </div>
+
+                                  <div className="space-y-4">
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-2">Intelligence Artifacts</p>
+                                     <div className="flex flex-col gap-3">
+                                        <div className="flex items-center gap-3">
+                                           <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-slate-400 shadow-sm border border-slate-100">
+                                              <Monitor size={14} />
+                                           </div>
+                                           <p className="text-xs font-bold text-slate-500 truncate">{company.location || "Location Synchronizing..."}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                           <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-slate-400 shadow-sm border border-slate-100">
+                                              <Mail size={14} />
+                                           </div>
+                                           <p className="text-xs font-bold text-slate-500 truncate">{company.contact_email || "Email Discovery Active..."}</p>
+                                        </div>
+                                     </div>
+                                     <p className="text-slate-500 font-semibold text-sm leading-relaxed line-clamp-3 italic pt-2">
+                                        "{company.deep_research || "Conducting in-depth organization analysis..."}"
+                                     </p>
+                                  </div>
+                               </div>
+                            </div>
+                          ))}
+                        </div>
+                     </div>
+                   )}
                 </div>
                )}
             </section>

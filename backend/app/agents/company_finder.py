@@ -57,7 +57,14 @@ class CompanyValidation(BaseModel):
 
 class CompanyFinderPipeline:
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        self.llm = ChatOpenAI(
+            model="gpt-4o-mini", 
+            temperature=0,
+            seed=42,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+        )
         self.tavily = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY and TavilyClient else None
 
     def get_domain(self, url: str) -> str:
