@@ -28,10 +28,10 @@ const Navbar = () => {
            <div className="h-8 w-[1px] bg-slate-100 mx-1" />
            <div className="flex flex-col">
              <span className="font-black text-sm tracking-widest text-[#1e293b] leading-none uppercase">
-                Enterprise
+                DIGIOTAI
              </span>
              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">
-                Command
+                Solutions
              </span>
            </div>
         </Link>

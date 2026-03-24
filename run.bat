@@ -43,7 +43,7 @@ popd
 
 :: Launch Unified Backend (API + Workers + Sentinel)
 echo [SUBSYSTEM] LAUNCHING UNIFIED BACKEND CLUSTER...
-start "Backend Cluster" cmd /k "cd backend && call venv\Scripts\activate && python start_backend.py"
+start "Backend Cluster" cmd /k "cd backend && call venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8000"
 
 :: Launch Frontend
 echo [SUBSYSTEM] LAUNCHING COMMAND INTERFACE...

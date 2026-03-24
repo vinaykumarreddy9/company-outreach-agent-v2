@@ -955,7 +955,8 @@ const CampaignWorkspace = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {(campaign.dms || []).filter(dm => dm.status === "DISCOVERY_CALL" || dm.status === "WAITING_FOR_REPLY").map(dm => {
-                    const draft = (campaign.drafts || []).find(d => d.decision_maker_id === dm.id);
+                    const dmDrafts = (campaign.drafts || []).filter(d => d.decision_maker_id === dm.id);
+                    const draft = dmDrafts[dmDrafts.length - 1];
                     const co = campaign.target_companies.find(c => c.id === dm.target_company_id);
                     
                     if (!draft) return null;

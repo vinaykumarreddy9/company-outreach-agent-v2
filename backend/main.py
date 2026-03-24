@@ -160,6 +160,7 @@ def get_campaign(campaign_id: str, db: Session = Depends(get_db)):
     for dm in db_campaign.dms:
         dm_dict = dm.__dict__.copy()
         dm_dict.pop("_sa_instance_state", None)
+        import datetime
         
         # Include communication logs
         logs = []

@@ -26,7 +26,7 @@ class SearchProvider:
                 kwargs["include_domains"] = include_domains
             response = self.tavily.search(**kwargs)
             results = response.get('results', [])
-            return [{"title": r.get('title', ''), "url": r.get('url', ''), "content": r.get('content', ''), "score": r.get('score', 0.8)} for r in results]
+            return [{"title": r.get('title', ''), "url": r.get('url', ''), "content": r.get('content', ''), "raw_content": r.get('raw_content', ''), "score": r.get('score', 0.8)} for r in results]
         except Exception as e:
             print(f"Tavily search error: {e}")
             return []

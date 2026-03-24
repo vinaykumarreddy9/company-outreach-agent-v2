@@ -84,7 +84,7 @@ class IMAPProvider:
                             "body": body,
                             "date": msg.get("Date")
                         })
-                        print(f"[IMAP] Captured potential reply: {subject} from {from_} (ID: {msg_id})")
+                        # Noisy log removed to prevent clutter from non-mission emails
                         
             # Mark as seen if necessary (or let the worker handle it)
             # mail.store(num, '+FLAGS', '\\Seen') 

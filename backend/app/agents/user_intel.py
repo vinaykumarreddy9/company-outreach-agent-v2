@@ -37,10 +37,11 @@ REQUIRED OUTPUT ARCHITECTURE:
 - website: Cleaned and verified official URL.
 - moto: The primary brand tagline or mission statement snippet (N/A if absent).
 - core_offerings: A list of 4-6 high-impact products, services, or core competencies. Be specific (e.g., "AS9100 Certified CNC Machining" instead of "Manufacturing").
-- deep_research: A 3-section analytical narrative:
-    * SECTION 1 (MARKET POSITION): Define the company's core niche, scale, and primary industry vertical.
-    * SECTION 2 (TECHNICAL VALUE PROPOSITION): Detail the specific technology or methodology that differentiates them.
-    * SECTION 3 (STRATEGIC SYNERGY SIGNAL): Analyze the most likely growth area or pain point that would make them a target for outreach.
+- deep_research: A high-fidelity, professional analytical narrative. Use clear, flowing paragraphs to cover:
+    1. Market Position & Core Vertical.
+    2. Technical Value Proposition (The core differentiator).
+    3. Strategic Synergy Signals for outreach.
+    CRITICAL: DO NOT use numbered side headings like "SECTION 1", "SECTION 2", or "SECTION 3" in the output.
 """
 
 from pydantic import BaseModel, Field

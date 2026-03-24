@@ -581,7 +581,10 @@ def process_discovery_reply(db, dm, reply_text: str):
     if dm.target_company:
         dm.target_company.status = "DATE_AND_MEETING_SECURED"
     dm.meeting_link = booking["link"]
-    dm.scheduled_time = final_ist_dt
+    
+    # Store exact IST wall clock without UTC translation logic
+    literal_ist_clock_time = final_ist_dt.replace(tzinfo=None)
+    dm.scheduled_time = literal_ist_clock_time
     dm.timezone = "IST" # Always store as IST now
     dm.scheduling_note = note
     

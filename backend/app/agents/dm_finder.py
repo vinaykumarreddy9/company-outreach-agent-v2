@@ -43,67 +43,70 @@ def find_decision_makers(company_name: str, location: str):
     """
     print(f" [DM Finder] Starting localized stakeholder research for: {company_name} in {location}")
     
-    # 1. Dual-Tier Query Strategy with Location Fencing
-    # We include the location to avoid finding DMs from different branches/companies with same names.
-    queries = [
-        f'site:linkedin.com/in "{company_name}" "{location}" ("CEO" OR "CTO" OR "Founder" OR "Managing Director")',
-        f'site:linkedin.com/in "{company_name}" "{location}" ("VP" OR "Director" OR "Manager")'
-    ]
+    # 1. Targeted Query Strategy (Strict Identifier)
+    # Using 'intitle' on LinkedIn profiles forces the company name to be a core part of the person's identity or headline.
+    query = f'site:linkedin.com/in intitle:"{company_name}" "{location}" ("CEO" OR "CTO" OR "Founder" OR "Managing Director" OR "VP" OR "Director")'
     
     all_raw_results = []
     seen_urls = set()
     
     # 2. Parallel Search Execution
-    for q in queries:
-        try:
-            results = search_provider.parallel_search(q)
-            for r in results:
-                if r['url'] not in seen_urls:
-                    all_raw_results.append(r)
-                    seen_urls.add(r['url'])
-        except Exception as e:
-            print(f" [DM Finder] Search failed for query '{q}': {e}")
+    try:
+        results = search_provider.parallel_search(query, include_domains=["linkedin.com"])
+        for r in results:
+            if r['url'] not in seen_urls:
+                all_raw_results.append(r)
+                seen_urls.add(r['url'])
+    except Exception as e:
+        print(f" [DM Finder] Search failed for query '{query}': {e}")
             
     if not all_raw_results:
         print(f" [DM Finder] Zero candidates found for {company_name} in {location}")
         return []
 
-    # 3. LLM Audit with Location Context
+    # 3. LLM Audit with 'Default Reject' Protocol
     structured_llm = llm.with_structured_output(DMFinderResponse)
     
     sys_prompt = f"""
-    You are a Strategic Stakeholder Auditor. Your mission is to identify and verify the current leadership of "{company_name}" in "{location}".
+    You are a Cynical Executive Auditor. Your mission is to REJECT candidates. 
+    You assume every search result is a false positive unless proven otherwise by IRREFUTABLE evidence in the content.
     
-    STRICT VALIDATION PROTOCOL:
-    1. CLEAR WITNESS REQUIREMENT: Only approve a candidate if the search snippet provides explicit "Ground Truth" that they are CURRENTLY at "{company_name}". 
-       - ACCEPT: "CEO at {company_name}", "{company_name} | Director...", "current role: Managing Director at {company_name}".
-       - REJECT: Ambiguous snippets, mentions of "linked to", or results where the company name isn't directly connected to the title in a current tense.
-    2. ZERO-TOLERANCE FOR FORMER ROLES: Strictly reject anyone marked "Former", "Ex-", "Past", or "started a new position at [Different Company]".
-    3. GEOGRAPHIC FENCING: Prioritize and verify that the snippet mentions "{location}" or the regional branch.
-    4. SENIORITY FILTER: Target C-Suite (CEO, CTO, Founder), VP, Director, and high-level Managers.
-    5. DEDUPLICATION: Merge multiple snippets for the same person into one entry with the best data.
+    THE 'DEFAULT REJECT' PROTOCOL:
+    1. AMBIGUOUS HEADLINES = REJECT: If the headline is just "[Name] - {company_name}" or "[Name] | {company_name}", they are an EMPLOYEE, not an executive. REJECT.
+    2. NO SELF-INFERRED TITLES: Only approve if an EXECUTIVE title (CEO, CTO, Founder, VP, Director, Head) is EXPLICITLY written in the snippet. DO NOT hallucinate or "assume" a title.
+    3. ASSOCIATION != EMPLOYMENT: REJECT if they merely "Liked", "Shared", or "Commented" on a post.
+    4. TITLE MISMATCH: REJECT if the primary headline mentions a DIFFERENT company.
+    5. POSITION WEAKNESS: REJECT: Manager, Employee, Student, Talent Acquisition, Consultant, Guest, or Member. 
+       - "Manager" is NOT an executive for our purposes. REJECT.
+    6. CURRENT STATUS: You MUST see "[Title] at {company_name}". If it doesn't specify CURRENT, REJECT.
     
     SCORING MATRIX:
-    - 95-100: C-Suite/Founders with explicit "Current" verification.
-    - 85-94: VP/Directors with explicit current role confirmation.
-    - 75-84: Managers with explicit current role confirmation.
-    - < 75: Reject (Ambiguous roles, secondary management, or lack of clear witness).
+    - 90-100: TOP LEADERSHIP (CEO/CTO/Founder/MD) with explicit CURRENT headline at "{company_name}".
+    - 85-89: HIGH EXECUTIVES (VP/Director/Head) with explicit CURRENT headline at "{company_name}".
+    - 0-84: REJECT (Ambiguous titles, employees, managers, and fans).
     
-    LIMIT: Return Top 3 unique, verified-current stakeholders only.
+    FINAL SKEPTICISM CHECK: If there is 1% doubt that this person is a high-level decision maker, REJECT.
+    
+    LIMIT: Return Top 3 unique, verified-current EXECUTIVES only.
     """
+    
+    # Use a safe slice to avoid context limits
+    all_raw_results = all_raw_results if isinstance(all_raw_results, list) else []
+    results_to_process = all_raw_results[:20]
     
     messages = [
         SystemMessage(content=sys_prompt),
-        HumanMessage(content=f"Company: {company_name}\nLocation: {location}\nSearch Results (JSON):\n{json.dumps(all_raw_results[:20], indent=2)}")
+        HumanMessage(content=f"Company: {company_name}\nLocation: {location}\nSearch Results (JSON):\n{json.dumps(results_to_process, indent=2)}")
     ]
     
     try:
-        print(f" [DM Finder] Verifying {len(all_raw_results)} snippets for {company_name} ({location})...")
+        print(f" [DM Finder] Auditing {len(results_to_process)} snippets for {company_name} ({location})...")
         response = structured_llm.invoke(messages)
         
         final_dms = []
         for dm in response.decision_makers:
-            if dm.seniority_score >= 70:
+            # We enforce the 85 point floor as requested to ensure executive seniority
+            if dm.seniority_score >= 85:
                 dm_dict = dm.model_dump()
                 dm_dict['similarity_score'] = dm.seniority_score
                 dm_dict['linkedin'] = clean_linkedin_url(dm.linkedin)
@@ -111,7 +114,7 @@ def find_decision_makers(company_name: str, location: str):
         
         # Ensure Top 3
         top_3 = sorted(final_dms, key=lambda x: x['similarity_score'], reverse=True)[:3]
-        print(f" [DM Finder] Success: Verified {len(top_3)} local stakeholders for {company_name}.")
+        print(f" [DM Finder] Success: Verified {len(top_3)} high-level executives for {company_name}.")
         return top_3
         
     except Exception as e:
