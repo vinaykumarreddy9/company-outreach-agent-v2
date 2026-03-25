@@ -60,19 +60,13 @@ class BatchDeleteRequest(BaseModel):
 
 @app.get("/health/email")
 def email_health_check():
-    """Diagnostic: verify SMTP config and test live connection on Render."""
-    import os, smtplib, ssl
-    host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-    port = 465  # Hardcoded — Render blocks 587
-    user = os.getenv("EMAIL_USER")
-    password = os.getenv("EMAIL_PASSWORD")
+    """Diagnostic: verify Resend API config on Render."""
+    import os, requests
+    resend_key = os.getenv("RESEND_API_KEY")
     from_email = os.getenv("EMAIL_FROM")
 
     config_status = {
-        "EMAIL_HOST": host,
-        "EMAIL_PORT": port,
-        "EMAIL_USER": user if user else "MISSING",
-        "EMAIL_PASSWORD": "SET" if password else "MISSING",
+        "RESEND_API_KEY": "SET" if resend_key else "MISSING",
         "EMAIL_FROM": from_email if from_email else "MISSING",
         "IMAP_USER": os.getenv("IMAP_USER", "MISSING"),
         "IMAP_PASSWORD": "SET" if os.getenv("IMAP_PASSWORD") else "MISSING",
@@ -80,17 +74,22 @@ def email_health_check():
         "OPENAI_API_KEY": "SET" if os.getenv("OPENAI_API_KEY") else "MISSING",
     }
 
-    smtp_test = "NOT TESTED — credentials missing"
-    if user and password:
+    resend_test = "NOT TESTED — RESEND_API_KEY missing"
+    if resend_key:
         try:
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(host, port, context=context, timeout=10) as server:
-                server.login(user, password)
-            smtp_test = f"SUCCESS — Connected to {host}:{port}"
+            resp = requests.get(
+                "https://api.resend.com/domains",
+                headers={"Authorization": f"Bearer {resend_key}"},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                resend_test = "SUCCESS — Resend API key is valid"
+            else:
+                resend_test = f"FAILED — Resend returned {resp.status_code}: {resp.text}"
         except Exception as e:
-            smtp_test = f"FAILED — {str(e)}"
+            resend_test = f"FAILED — {str(e)}"
 
-    return {"config": config_status, "smtp_connection_test": smtp_test}
+    return {"config": config_status, "resend_api_test": resend_test}
 
 @app.post("/campaigns", response_model=CampaignResponse)
 def create_campaign(campaign: CampaignCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
