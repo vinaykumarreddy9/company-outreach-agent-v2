@@ -58,6 +58,40 @@ class CampaignResponse(BaseModel):
 class BatchDeleteRequest(BaseModel):
     campaign_ids: list[str]
 
+@app.get("/health/email")
+def email_health_check():
+    """Diagnostic: verify SMTP config and test live connection on Render."""
+    import os, smtplib, ssl
+    host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    port = 465  # Hardcoded — Render blocks 587
+    user = os.getenv("EMAIL_USER")
+    password = os.getenv("EMAIL_PASSWORD")
+    from_email = os.getenv("EMAIL_FROM")
+
+    config_status = {
+        "EMAIL_HOST": host,
+        "EMAIL_PORT": port,
+        "EMAIL_USER": user if user else "MISSING",
+        "EMAIL_PASSWORD": "SET" if password else "MISSING",
+        "EMAIL_FROM": from_email if from_email else "MISSING",
+        "IMAP_USER": os.getenv("IMAP_USER", "MISSING"),
+        "IMAP_PASSWORD": "SET" if os.getenv("IMAP_PASSWORD") else "MISSING",
+        "NEON_DB_URL": "SET" if os.getenv("NEON_DB_URL") else "MISSING",
+        "OPENAI_API_KEY": "SET" if os.getenv("OPENAI_API_KEY") else "MISSING",
+    }
+
+    smtp_test = "NOT TESTED — credentials missing"
+    if user and password:
+        try:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=10) as server:
+                server.login(user, password)
+            smtp_test = f"SUCCESS — Connected to {host}:{port}"
+        except Exception as e:
+            smtp_test = f"FAILED — {str(e)}"
+
+    return {"config": config_status, "smtp_connection_test": smtp_test}
+
 @app.post("/campaigns", response_model=CampaignResponse)
 def create_campaign(campaign: CampaignCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # 1. Create campaign in DB
