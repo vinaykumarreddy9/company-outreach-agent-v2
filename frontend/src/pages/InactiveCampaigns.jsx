@@ -54,7 +54,7 @@ const InactiveCampaigns = () => {
     setProcessingId(id);
     setProcessingAction('restore');
     try {
-      await axios.patch(`http://localhost:8000/campaigns/${id}/status?status=PENDING`);
+      await axios.patch(`${API_BASE_URL}/campaigns/${id}/status?status=PENDING`);
       setCampaigns(prev => prev.filter(c => c.id !== id));
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
     } catch (error) {
@@ -70,7 +70,7 @@ const InactiveCampaigns = () => {
     if (!window.confirm(`Permanently delete ${selectedIds.length} inactive missions?`)) return;
     setProcessingAction('batch-delete');
     try {
-      await axios.post("http://localhost:8000/campaigns/batch-delete", { campaign_ids: selectedIds });
+      await axios.post(`${API_BASE_URL}/campaigns/batch-delete`, { campaign_ids: selectedIds });
       setCampaigns(prev => prev.filter(c => !selectedIds.includes(c.id)));
       setSelectedIds([]);
     } catch (error) {
@@ -85,7 +85,7 @@ const InactiveCampaigns = () => {
     setProcessingAction('batch-restore');
     try {
       await Promise.all(selectedIds.map(id => 
-        axios.patch(`http://localhost:8000/campaigns/${id}/status?status=PENDING`)
+        axios.patch(`${API_BASE_URL}/campaigns/${id}/status?status=PENDING`)
       ));
       setCampaigns(prev => prev.filter(c => !selectedIds.includes(c.id)));
       setSelectedIds([]);

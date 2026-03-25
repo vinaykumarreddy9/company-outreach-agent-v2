@@ -68,7 +68,7 @@ const ActiveCampaigns = () => {
     setProcessingAction("deactivate");
     try {
       await axios.patch(
-        `http://localhost:8000/campaigns/${id}/status?status=INACTIVE`,
+        `${API_BASE_URL}/campaigns/${id}/status?status=INACTIVE`,
       );
       setCampaigns((prev) => prev.filter((c) => c.id !== id));
       setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
@@ -91,7 +91,7 @@ const ActiveCampaigns = () => {
 
     setProcessingAction("batch-delete");
     try {
-      await axios.post("http://localhost:8000/campaigns/batch-delete", {
+      await axios.post(`${API_BASE_URL}/campaigns/batch-delete`, {
         campaign_ids: selectedIds,
       });
       setCampaigns((prev) => prev.filter((c) => !selectedIds.includes(c.id)));
@@ -110,7 +110,7 @@ const ActiveCampaigns = () => {
       await Promise.all(
         selectedIds.map((id) =>
           axios.patch(
-            `http://localhost:8000/campaigns/${id}/status?status=INACTIVE`,
+            `${API_BASE_URL}/campaigns/${id}/status?status=INACTIVE`,
           ),
         ),
       );

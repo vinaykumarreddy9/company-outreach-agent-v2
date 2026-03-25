@@ -156,7 +156,7 @@ const CampaignWorkspace = () => {
   const handleSendMessage = async (draftId, name) => {
     setSendingId(draftId);
     try {
-        await axios.post(`http://localhost:8000/drafts/${draftId}/send`);
+        await axios.post(`${API_BASE_URL}/drafts/${draftId}/send`);
         alert(`Mission Accomplished: Engagement protocol targeting ${name} has been deployed successfully.`);
         await fetchCampaignDetails();
     } catch (error) {
@@ -172,7 +172,7 @@ const CampaignWorkspace = () => {
     if (!selectedDraft) return;
     setIsSaving(true);
     try {
-      await axios.patch(`http://localhost:8000/drafts/${selectedDraft.id}`, draftEditData);
+      await axios.patch(`${API_BASE_URL}/drafts/${selectedDraft.id}`, draftEditData);
       await fetchCampaignDetails();
       setSelectedDraft(null);
       alert("Executive Protocol Refinement Synchronized.");
