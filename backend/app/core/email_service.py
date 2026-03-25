@@ -12,7 +12,7 @@ class EmailService:
     def __init__(self):
         # Port 465 (SSL) works on Render. Port 587 (STARTTLS) is blocked on free tier.
         self.host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-        self.port = int(os.getenv("EMAIL_PORT", 465))
+        self.port = 465  # Hardcoded SSL port — Render blocks 587 (STARTTLS)
         self.user = os.getenv("EMAIL_USER")
         self.password = os.getenv("EMAIL_PASSWORD")
         self.from_email = os.getenv("EMAIL_FROM")
