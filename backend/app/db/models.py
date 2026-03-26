@@ -62,6 +62,8 @@ class TargetCompany(Base):
     domain = Column(String, nullable=True)
     linkedin = Column(String)
     location = Column(String)
+    company_type = Column(String, nullable=True) # Specific sub-vertical (e.g., 'Precision Machining')
+    employee_count = Column(String, nullable=True) # Headcount data from research
     contact_email = Column(String)
     contact_number = Column(String)
     deep_research = Column(Text)

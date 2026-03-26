@@ -8,10 +8,11 @@ import {
   Linkedin, MessageSquare, ChevronRight,
   Monitor, PhoneCall, FileBarChart,
   X, Edit3, Send, Trash, Maximize2, Clock, Calendar, Link2,
-  TrendingUp, PieChart, Target, ShieldCheck
+  TrendingUp, PieChart, Target, ShieldCheck, LayoutDashboard
 } from "lucide-react";
 import axios from "axios";
 import API_BASE_URL from "../config";
+import LeadLedger from "./LeadLedger";
 
 const formatTimeAgo = (timestamp) => {
   if (!timestamp) return "Never";
@@ -253,6 +254,14 @@ const CampaignWorkspace = () => {
             <Search size={16} strokeWidth={3} />
             Research
           </button>
+
+          <button 
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex items-center gap-2.5 px-6 py-2.5 rounded-xl text-[13px] font-black uppercase tracking-wider transition-all ${activeTab === "dashboard" ? "bg-white text-brand-primary shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+          >
+            <LayoutDashboard size={16} strokeWidth={3} />
+            Dashboard
+          </button>
           
           <AnimatePresence>
             {hasDrafts && (
@@ -299,6 +308,10 @@ const CampaignWorkspace = () => {
       </header>
 
       <main className="pt-32 pb-20 px-10 max-w-[1600px] mx-auto">
+        {activeTab === "dashboard" && (
+          <LeadLedger campaign={campaign} />
+        )}
+
         {activeTab === "research" && (
           <div className="flex flex-col gap-12">
             {/* Quadrant 1: Mission Briefing (Analyzer + User Intel) */}

@@ -94,6 +94,8 @@ def find_companies_worker(campaign_id: str):
                 domain=co.get("domain"),
                 linkedin=co.get("linkedin"),
                 location=co.get("location"),
+                company_type=co.get("company_type"),
+                employee_count=co.get("employee_count"),
                 contact_email="N/A",
                 contact_number="N/A",
                 deep_research=co.get("deep_research"),

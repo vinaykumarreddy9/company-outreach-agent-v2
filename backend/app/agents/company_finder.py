@@ -47,11 +47,14 @@ class DeduplicationResult(BaseModel):
 
 class CompanyValidation(BaseModel):
     name: str
-    is_industry_match: bool = Field(description="True if the entity strictly matches the target sector or industry verticle.")
+    company_type: str = Field(description="The specific sub-vertical or niche (e.g., 'Precision Aerospace Manufacturing').")
+    employee_count: str = Field(description="The exact headcount or range found in research (e.g., '501-1,000'). Use 'N/A' if unknown.")
+    is_industry_match: bool = Field(description="True if the entity STRICTLY matches the target sector's primary operating nature.")
+    is_primary_operator: bool = Field(description="CRITICAL: True ONLY if they are a core player (e.g. they ARE manufacturers), not just a supplier/software provider for that sector.")
     is_offering_synergy: bool = Field(description="True if there is a demonstrated ROI potential for our unique offerings.")
     synergy_score: int = Field(description="0-100 score.")
-    val_reasoning: str = Field(description="Match analysis.")
-    is_valid_lead: bool = Field(description="Final decision.")
+    val_reasoning: str = Field(description="Match analysis focusing on Primary vs Tertiary sector roles.")
+    is_valid_lead: bool = Field(description="Final decision. True only if Synergy > 80% and is_primary_operator is True.")
 
 # --- PIPELINE COMPONENTS ---
 
@@ -147,7 +150,19 @@ class CompanyFinderPipeline:
         structured_llm = self.llm.with_structured_output(CompanyValidation)
         off_str = ", ".join(offerings)
         
-        sys_prompt = f"Expert Lead Auditor. Target Sector: {industry}. Unique Offerings: {off_str}. YOUR MISSION: Audit if the company is a high-fidelity match for the target sector and if our offerings solve a core problem for them. REJECT if industry fit is weak or Synergy < 80%."
+        sys_prompt = f"""Expert Lead Auditor. 
+Target Sector: {industry}. 
+Our Offerings: {off_str}. 
+
+MISSION: 
+1. Identify the EXACT company sub-vertical and employee size from research.
+2. VERTICAL INTEGRITY AUDIT: You must distinguish between Primary Operators (Makers) and Tertiary Service Providers (Suppliers/Consultants). 
+   - If Target is 'Manufacturing', only approve ACTUAL manufacturers.
+   - REJECT if they are a supply/service/software company catering TO the sector.
+   - REJECT if they are pure traders or distributors.
+3. SYNERGY AUDIT: Match our offerings to their core pain points. 
+
+CRITICAL: REJECT if Synergy < 80% or is_primary_operator is False."""
         context = json.dumps(res_data.get('raw_research', [])[:3], indent=2)
         
         msg = f"Company: {res_data['name']}\nWebsite: {res_data['website']}\nResearch Data:\n{context}"
@@ -232,6 +247,8 @@ def find_target_companies(target_criteria: dict, user_offerings: list):
             "domain": res_item['domain'],
             "linkedin": original_meta.linkedin_url,
             "location": location,
+            "company_type": audit.company_type,
+            "employee_count": audit.employee_count,
             "description": original_meta.description,
             "deep_research": clean_research,
             "similarity_score": audit.synergy_score,
